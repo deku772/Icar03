@@ -51,8 +51,10 @@ final class BleWriteQueue {
         }
     }
 
-    /** 带响应写超时：超过此时间无回调判定链路卡死（触发重连） */
-    private static final long STALL_MS = 1200;
+    /** 带响应写超时：超过此时间无回调判定链路卡死（触发重连）。
+     *  v1.8 用 1200ms 与车机（Android 9）迟到的真实 ACK 竞争产生并发在途写，
+     *  v1.8.1 放宽到 3000ms 适配慢链路。 */
+    private static final long STALL_MS = 3000;
     private static final int MAX_RETRY = 3;
     private static final long RETRY_MS = 60;
 
@@ -123,9 +125,12 @@ final class BleWriteQueue {
                 main.postDelayed(retryTask, RETRY_MS);
                 return;
             }
-            /* 重试仍失败：连接大概率已断，放弃本队列（上层会走断开重连补推） */
+            /* 重试仍失败：不再静默丢弃剩余分片（v1.8 教训：静默清空导致车机
+             * 组帧永远 0）。主动触发 stall 回调 → 上层断开重连 → 重连后自动
+             * 补推当前完整曲目，剩余分片随 clear() 一起作废即可。 */
             stats.failCount++;
             queue.clear();
+            stallListener.onStalled();
             return;
         }
         /* 已发起：等真实 ACK。超时未回 = 链路卡死 */
