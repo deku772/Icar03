@@ -108,6 +108,11 @@ public class PhoneMainActivity extends Activity {
     }
 
     private void refreshStatus() {
+        /* 同步 BLE 写入统计到监控快照（每秒刷新） */
+        try {
+            PlaybackService.refreshWriteStats();
+        } catch (Exception ignored) {}
+
         String enabled = Settings.Secure.getString(
                 getContentResolver(), "enabled_notification_listeners");
         boolean nl = enabled != null && enabled.contains(getPackageName());
@@ -146,6 +151,11 @@ public class PhoneMainActivity extends Activity {
             sb.append("\n▸ 取词: ").append(m.fetchState)
                     .append(m.fetchSource.isEmpty() ? "" : "（" + m.fetchSource + "）")
                     .append("\n▸ 推送: 歌词 ").append(m.pushCount).append(" 次 · 进度包 ").append(m.progressCount).append(" 个");
+            /* v1.6 写入诊断：ACK/失败可见，判断是否真送到车机 */
+            if (m.writeAck > 0 || m.writeFail > 0) {
+                sb.append("\n▸ BLE写入: ACK ").append(m.writeAck)
+                        .append(" · 失败 ").append(m.writeFail);
+            }
         }
         if (crash != null) sb.append("\n▸ [上次崩溃] ").append(firstLine(crash));
         tvStatus.setText(sb.toString());

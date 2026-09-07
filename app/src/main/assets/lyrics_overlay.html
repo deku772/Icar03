@@ -66,9 +66,14 @@ var S = {
   switchAt: 0,            // 当前行切换时刻（淡入动画）
   demo: false,
   loop: true,
+  S.cur = -1,
   connected: false,       // BLE 手机端是否已连接（conn 消息更新）
   connDevice: '',         // 已连接的设备名/地址
-  advState: ''            // 车机 BLE 广播状态（conn 消息更新）
+  advState: '',           // 车机 BLE 广播状态（conn 消息更新）
+  rxFrag: 0,              // 车机端收到的歌词分片数（rxStats 更新）
+  rxFrame: 0,             // 车机端组装的完整歌词帧数
+  rxProg: 0,              // 车机端收到的进度包数
+  rxBrief: ''             // 最近歌词帧摘要
 };
 
 var THEME = {
@@ -207,6 +212,14 @@ function handleCmd(msg){
       S.connDevice = msg.device || '';
     }
     syncPanel();
+    return;
+  }
+  if (msg.action === 'rxStats'){
+    /* 车机端接收统计（断点诊断）：仅无歌词时更新显示 */
+    if (typeof msg.frag === 'number') S.rxFrag = msg.frag;
+    if (typeof msg.frame === 'number') S.rxFrame = msg.frame;
+    if (typeof msg.prog === 'number') S.rxProg = msg.prog;
+    if (typeof msg.brief === 'string') S.rxBrief = msg.brief;
     return;
   }
   var a = msg.action;
@@ -410,6 +423,14 @@ function draw(){
         msg = '等待手机连接…';
       }
       ctx.fillText(msg, W/2, H*0.055 + fs);
+      /* 接收统计（断点诊断）：车机端到底收到多少分片/帧/进度包 */
+      if (S.rxFrag > 0 || S.rxProg > 0 || S.rxFrame > 0){
+        var small = Math.round(fs*0.6);
+        ctx.font = small+'px '+FONT;
+        ctx.fillStyle = S.theme==='dark' ? 'rgba(255,255,255,.30)' : 'rgba(27,35,51,.30)';
+        ctx.fillText('分片 '+S.rxFrag+' · 组帧 '+S.rxFrame+' · 进度 '+S.rxProg
+          + (S.rxBrief ? ' · ' + S.rxBrief : ''), W/2, H*0.055 + fs*2.1);
+      }
     }
     return;
   }

@@ -109,6 +109,11 @@ class BleClient {
         return gatt != null && chLyrics != null;
     }
 
+    /** 写入队列统计（v1.6 诊断）：ACK/失败计数，供监控台展示 */
+    BleWriteQueue.Stats writeStats() {
+        return writeQueue.stats();
+    }
+
     /* ---------------- 设备选择 ---------------- */
 
     /** 手动选择设备并立即连接（记住默认，后续默认直连） */

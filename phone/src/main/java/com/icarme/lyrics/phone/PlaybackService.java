@@ -151,6 +151,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         mon.lrcPreview = "";
         mon.pushCount = 0;
         mon.progressCount = 0;
+        mon.writeAck = 0;
+        mon.writeFail = 0;
         mon.bleState = "未连接";
         stopForeground(true);
         super.onDestroy();
@@ -357,6 +359,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         volatile String lrcPreview = "";    /* 歌词前几行预览 */
         volatile int pushCount = 0;         /* 成功推送歌词次数 */
         volatile int progressCount = 0;     /* 进度包计数 */
+        volatile int writeAck = 0;          /* BLE 写入 ACK 数 */
+        volatile int writeFail = 0;         /* BLE 写入失败数 */
         volatile String bleState = "未连接"; /* BLE 状态 */
         volatile long lastActivity = 0;     /* 最后活动时刻 */
     }
@@ -471,6 +475,15 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     void clearDevice() {
         ble.clearSelectedDevice();
         updateNotification("未选择车机");
+    }
+
+    /** 同步 BLE 写入统计到监控快照（监控台每秒调用，v1.6） */
+    static void refreshWriteStats() {
+        PlaybackService svc = instance;
+        if (svc == null || svc.ble == null) return;
+        BleWriteQueue.Stats s = svc.ble.writeStats();
+        mon.writeAck = s.ackCount;
+        mon.writeFail = s.failCount;
     }
 
     String getSelectedDeviceName() { return ble.getSelectedName(); }

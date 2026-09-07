@@ -26,6 +26,15 @@ final class BleWriteQueue {
         boolean write(BluetoothGattCharacteristic ch, byte[] data);
     }
 
+    /** 写结果统计（v1.6 诊断）：ack=成功确认，fail=发起失败/写失败 */
+    static final class Stats {
+        volatile int ackCount = 0;
+        volatile int failCount = 0;
+    }
+
+    private final Stats stats = new Stats();
+    Stats stats() { return stats; }
+
     private static final class Item {
         final BluetoothGattCharacteristic ch;
         final byte[] data;
@@ -54,6 +63,7 @@ final class BleWriteQueue {
         awaitAck = false;
         main.removeCallbacks(noAckTimer);
         busy = false;
+        stats.ackCount++;
         pumpLocked();
     }
 
@@ -81,7 +91,8 @@ final class BleWriteQueue {
             ok = false;
         }
         if (!ok) {
-            /* 写入发起失败：连接可能已断，丢弃剩余队列避免死循环 */
+            /* 写入发起失败：连接可能已断，丢弃队列避免死循环 */
+            stats.failCount++;
             queue.clear();
             busy = false;
             return;

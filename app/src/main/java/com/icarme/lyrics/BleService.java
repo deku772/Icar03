@@ -56,6 +56,13 @@ public class BleService extends Service {
     private Handler main;
     private final Reassembler reassembler = new Reassembler();
 
+    /** 接收统计（v1.6 新增，供渲染层展示诊断断点） */
+    public static volatile int fragCount = 0;   /* 收到的歌词分片数 */
+    public static volatile int frameCount = 0;  /* 成功组装的完整歌词帧数 */
+    public static volatile int progCount = 0;   /* 收到的进度包数 */
+    public static volatile long lastFragMs = 0; /* 最近分片时刻 */
+    public static volatile String lastFrameBrief = ""; /* 最近歌词帧摘要（曲目/行数/字节） */
+
     /** 广播/服务器状态（主界面与悬浮窗展示用） */
     public static volatile String advState = "未启动";   /* 未启动/启动中/广播中/广播失败:xx/蓝牙未开启/服务异常 */
 
@@ -287,10 +294,26 @@ public class BleService extends Service {
             UUID uuid = characteristic.getUuid();
             try {
                 if (CH_LYRICS.equals(uuid)) {
+                    fragCount++;
+                    lastFragMs = System.currentTimeMillis();
                     Reassembler.Frame f = reassembler.feed(value);
-                    if (f != null) OverlayService.push(f.json);
+                    if (f != null) {
+                        frameCount++;
+                        try {
+                            org.json.JSONObject jo = new org.json.JSONObject(f.json);
+                            lastFrameBrief = jo.optString("track", "?") + " / "
+                                    + jo.optString("artist", "") + " / "
+                                    + String.valueOf(jo.optString("lrc", "").length()) + "字 / "
+                                    + jo.optString("source", "?");
+                        } catch (Exception e) {
+                            lastFrameBrief = "解析失败";
+                        }
+                        OverlayService.push(f.json);
+                    }
+                    reportRx();
                 } else if (CH_PROGRESS.equals(uuid) || CH_CMD.equals(uuid)) {
                     if (value != null && value.length > 0) {
+                        progCount++;
                         OverlayService.push(new String(value, java.nio.charset.StandardCharsets.UTF_8));
                     }
                 }
@@ -300,6 +323,21 @@ public class BleService extends Service {
             if (responseNeeded) {
                 gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value);
             }
+        }
+
+        /** 接收统计 → 渲染层（断点诊断可见） */
+        private void reportRx() {
+            try {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("type", "cmd");
+                o.put("action", "rxStats");
+                o.put("frag", fragCount);
+                o.put("frame", frameCount);
+                o.put("prog", progCount);
+                o.put("lastFragMs", lastFragMs);
+                o.put("brief", lastFrameBrief);
+                OverlayService.push(o.toString());
+            } catch (Exception ignored) {}
         }
 
         @Override
