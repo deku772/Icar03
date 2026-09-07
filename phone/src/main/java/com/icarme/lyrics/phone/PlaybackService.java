@@ -121,7 +121,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         if (ble.isConnected()) {
             fetchAndPush(track, artist, album, durationMs);
         }
-        /* 未连接时 ble 会自动重连；连接建立后由进度循环补推 */
+        /* 未连接时 ble 会自动重连；连接建立后由 onBleState 补推 */
     }
 
     @Override
@@ -129,6 +129,14 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         lastPos = positionMs;
         lastPlaying = playing;
         startProgressTask();
+    }
+
+    @Override
+    public void onDiag(String line) {
+        /* 媒体检测诊断：仅无曲目时更新通知，避免刷屏 */
+        if (curKey.isEmpty()) {
+            updateNotification(line);
+        }
     }
 
     /* ---------------- 取词 + 推送 ---------------- */
@@ -217,12 +225,19 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     String getSelectedDeviceName() { return ble.getSelectedName(); }
 
     private void onBleState(String state, String detail) {
-        if ("connected".equals(state) && !curKey.isEmpty()) {
-            /* 重连成功：用当前 key 补推一次歌词 */
-            String[] parts = curKey.split("\\|", 2);
-            fetchAndPush(parts[0], parts.length > 1 ? parts[1] : "", null, curDuration);
+        if ("connected".equals(state)) {
+            if (!curKey.isEmpty()) {
+                /* 连接建立时若已在放歌：立即补推当前曲目（不等下一首） */
+                String[] parts = curKey.split("\\|", 2);
+                updateNotification("已连接，补推当前曲目…");
+                fetchAndPush(parts[0], parts.length > 1 ? parts[1] : "", null, curDuration);
+            } else {
+                updateNotification("车机已连接，等待播放…（放歌即推词）");
+                return;
+            }
+        } else {
+            updateNotification("BLE: " + detail);
         }
-        updateNotification("BLE: " + detail);
     }
 
     /* ---------------- 通知 ---------------- */

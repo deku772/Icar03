@@ -109,8 +109,11 @@ public class PhoneMainActivity extends Activity {
         }
 
         String crash = IcarPhoneApp.readCrash();
-        tvStatus.setText("通知使用权: " + (nl ? "已授权" : "未授权")
+        String nlState = nl ? "已授权"
+                : "未授权（放歌无反应时先点上方「1. 授权」）";
+        tvStatus.setText("通知使用权: " + nlState
                 + "\n推送服务: " + (PlaybackService.running ? "运行中" : "已停止")
+                + "\n媒体监控: " + (PlaybackService.running && nl ? "工作中" : "未工作")
                 + (crash == null ? "" : "\n[上次崩溃] " + firstLine(crash)));
         btnService.setText(PlaybackService.running ? "停止推送服务" : "3. 启动推送服务");
         btnDevice.setText(devName == null ? "2. 选择车机" : "已选车机: " + devName);
