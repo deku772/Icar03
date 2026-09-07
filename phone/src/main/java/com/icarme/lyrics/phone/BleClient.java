@@ -79,8 +79,8 @@ class BleClient {
     private String selectedAddress;
     private boolean reconnectEnabled = false;
 
-    /** 写入队列：串行、等 ACK（v1.5 新增） */
-    private final BleWriteQueue writeQueue = new BleWriteQueue(this::writeRaw);
+    /** 写入队列 v2：严格串行、绝不伪放行，卡死即重连（v1.8） */
+    private final BleWriteQueue writeQueue = new BleWriteQueue(this::writeRaw, this::onWriteStalled);
 
     BleClient(Context context, Listener listener) {
         this.context = context;
@@ -330,7 +330,7 @@ class BleClient {
         }
         if (pkts == null || pkts.length == 0) return false;
         for (byte[] pkt : pkts) {
-            writeQueue.enqueue(chLyrics, pkt);
+            writeQueue.enqueue(chLyrics, pkt, false);   /* 歌词分片：严格保序 */
         }
         return true;
     }
@@ -343,7 +343,7 @@ class BleClient {
             Log.w(TAG, "progress json too large: " + data.length);
             return false;
         }
-        writeQueue.enqueue(chProgress, data);
+        writeQueue.enqueue(chProgress, data, true);   /* 进度包：可合并 */
         return true;
     }
 
@@ -353,6 +353,15 @@ class BleClient {
         ch.setValue(data);
         ch.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
         return gatt.writeCharacteristic(ch);
+    }
+
+    /** 写入卡死（1.2 秒无 ACK）：断开重连，恢复后自动补推当前曲目 */
+    private void onWriteStalled() {
+        setState("error", "写入卡死，断开重连…");
+        if (gatt != null) {
+            try { gatt.disconnect(); } catch (Exception ignored) {}
+        }
+        /* 断开回调里会 cleanup + 3 秒后重连；重连后 onBleState 补推当前曲目 */
     }
 
     /* ---------------- 生命周期 ---------------- */

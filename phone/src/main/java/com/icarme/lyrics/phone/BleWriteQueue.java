@@ -7,82 +7,107 @@ import android.util.Log;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Iterator;
 
 /**
- * BLE 写入队列：所有写入（歌词分片 / 进度单包）串行排队，每片等
- * onCharacteristicWrite 回调（ACK）后才发下一个，严格满足 BLE 单在途
- * 写限制，杜绝"第 N 片写入失败"。
+ * BLE 写入队列 v2。
  *
- * 兼容车机端"无响应写"：若车机用 WRITE_TYPE_NO_RESPONSE（无 ACK 回调），
- * 本队列在 MAX_NOACK_MS 后强制放行下一片，避免死等。
+ * v1.5.1 教训：150ms 无 ACK 便"伪放行"下一片，与迟到的真实回调竞争，
+ * 产生并发在途写 → 违反 BLE 单在途限制 → GATT 栈拒绝后续写（失败 8 次）
+ * → 链路丢包（ACK 95 车机只收到 39）→ 歌词分片序列被清空，永远组不成帧。
+ *
+ * v2 原则：
+ *  1) WRITE_TYPE_DEFAULT（带响应写）保证 onCharacteristicWrite 必回调
+ *     （成功或失败都会），绝不伪放行。超时 = 链路卡死 → 通知上层断开重连
+ *  2) onWriteComplete 防重入：非 busy 状态直接忽略迟到/重复回调
+ *  3) 写发起失败：重试当前片（3 次 × 60ms），不再清空整个队列丢分片
+ *  4) 进度包（droppable）合并：队列中只保留最新一个，避免积压
  */
 final class BleWriteQueue {
 
     private static final String TAG = "IcarLyrics.Phone.WriteQ";
-    /** 无响应写超时：150ms 无回调则视为已发出 */
-    private static final long MAX_NOACK_MS = 150;
 
     interface Writer {
         boolean write(BluetoothGattCharacteristic ch, byte[] data);
     }
 
-    /** 写结果统计（v1.6 诊断）：ack=成功确认，fail=发起失败/写失败 */
-    static final class Stats {
-        volatile int ackCount = 0;
-        volatile int failCount = 0;
+    interface StallListener {
+        /** 写入长时间无 ACK：链路疑似卡死，上层应断开重连 */
+        void onStalled();
     }
 
-    private final Stats stats = new Stats();
-    Stats stats() { return stats; }
+    static final class Stats {
+        volatile int ackCount = 0;   /* 真实 ACK 次数 */
+        volatile int failCount = 0;  /* 重试 3 次仍发起失败的次数 */
+    }
 
     private static final class Item {
         final BluetoothGattCharacteristic ch;
         final byte[] data;
-        Item(BluetoothGattCharacteristic ch, byte[] data) {
-            this.ch = ch;
-            this.data = data;
+        final boolean droppable;   /* 进度包：可被更新版本替换 */
+        int retry = 0;
+        Item(BluetoothGattCharacteristic ch, byte[] data, boolean droppable) {
+            this.ch = ch; this.data = data; this.droppable = droppable;
         }
     }
 
+    /** 带响应写超时：超过此时间无回调判定链路卡死（触发重连） */
+    private static final long STALL_MS = 1200;
+    private static final int MAX_RETRY = 3;
+    private static final long RETRY_MS = 60;
+
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Writer writer;
+    private final StallListener stallListener;
     private final Deque<Item> queue = new ArrayDeque<>();
-    private boolean busy = false;        /* 当前是否在等待 ACK */
-    private boolean awaitAck = false;
+    private boolean busy = false;
 
-    BleWriteQueue(Writer writer) { this.writer = writer; }
+    final Stats stats = new Stats();
 
-    /** 入队一份数据（自动串行发送） */
-    synchronized void enqueue(BluetoothGattCharacteristic ch, byte[] data) {
-        queue.addLast(new Item(ch, data));
+    Stats stats() { return stats; }
+
+    BleWriteQueue(Writer writer, StallListener stallListener) {
+        this.writer = writer;
+        this.stallListener = stallListener;
+    }
+
+    /**
+     * 入队。
+     * droppable=true（进度包）：移除队列中旧进度包只留最新，防止积压拖慢歌词分片。
+     * droppable=false（歌词分片）：严格保序，绝不丢弃。
+     */
+    synchronized void enqueue(BluetoothGattCharacteristic ch, byte[] data, boolean droppable) {
+        if (droppable && !queue.isEmpty()) {
+            Iterator<Item> it = queue.iterator();
+            while (it.hasNext()) {
+                if (it.next().droppable) it.remove();
+            }
+        }
+        queue.addLast(new Item(ch, data, droppable));
         pumpLocked();
     }
 
-    /** 由 onCharacteristicWrite 回调调用：当前片已完成，放行下一片 */
+    /** onCharacteristicWrite 回调：当前片完成，放行下一片 */
     synchronized void onWriteComplete() {
-        awaitAck = false;
-        main.removeCallbacks(noAckTimer);
+        if (!busy) return;   /* 防重入：迟到/重复回调直接忽略 */
         busy = false;
+        main.removeCallbacks(stallTimer);
         stats.ackCount++;
         pumpLocked();
     }
 
-    /** 由 GATT 断开/清除时调用：清空队列 */
+    /** GATT 断开/重置：清空队列 */
     synchronized void clear() {
         queue.clear();
-        awaitAck = false;
-        main.removeCallbacks(noAckTimer);
         busy = false;
+        main.removeCallbacks(stallTimer);
+        main.removeCallbacks(retryTask);
     }
-
-    synchronized boolean isIdle() { return !busy && queue.isEmpty(); }
 
     private void pumpLocked() {
         if (busy) return;
         Item item = queue.pollFirst();
         if (item == null) return;
-        busy = true;
-        awaitAck = false;
         boolean ok;
         try {
             ok = writer.write(item.ch, item.data);
@@ -91,21 +116,37 @@ final class BleWriteQueue {
             ok = false;
         }
         if (!ok) {
-            /* 写入发起失败：连接可能已断，丢弃队列避免死循环 */
+            /* 发起失败：重试当前片（不清空队列，保住歌词分片序列） */
+            if (item.retry < MAX_RETRY) {
+                item.retry++;
+                queue.addFirst(item);
+                main.postDelayed(retryTask, RETRY_MS);
+                return;
+            }
+            /* 重试仍失败：连接大概率已断，放弃本队列（上层会走断开重连补推） */
             stats.failCount++;
             queue.clear();
-            busy = false;
             return;
         }
-        /* 等待 ACK；若为无响应写（无回调），由定时器兜底放行 */
-        awaitAck = true;
-        main.postDelayed(noAckTimer, MAX_NOACK_MS);
+        /* 已发起：等真实 ACK。超时未回 = 链路卡死 */
+        busy = true;
+        main.postDelayed(stallTimer, STALL_MS);
     }
 
-    private final Runnable noAckTimer = new Runnable() {
+    private final Runnable retryTask = new Runnable() {
+        @Override public void run() {
+            synchronized (BleWriteQueue.this) { pumpLocked(); }
+        }
+    };
+
+    private final Runnable stallTimer = new Runnable() {
         @Override public void run() {
             synchronized (BleWriteQueue.this) {
-                if (awaitAck) onWriteComplete();
+                if (!busy) return;
+                Log.w(TAG, "write stalled " + STALL_MS + "ms, forcing reconnect");
+                queue.clear();
+                busy = false;
+                stallListener.onStalled();
             }
         }
     };
