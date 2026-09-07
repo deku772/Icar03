@@ -63,13 +63,23 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         super.onCreate();
         instance = this;
         running = true;
-        startForeground();
+        try {
+            startForeground();
+        } catch (Exception e) {
+            /* 通知通道/前台通知异常不应导致服务崩溃 */
+            IcarPhoneApp.saveCrash(Thread.currentThread(), e);
+        }
         NotificationListener.setCallback(this);
         main.post(() -> {
-            if (ble.getSelectedAddressText() == null) {
-                updateNotification("请先在主界面选择车机");
-            } else {
-                ble.connect();
+            try {
+                if (ble.getSelectedAddressText() == null) {
+                    updateNotification("请先在主界面选择车机");
+                } else {
+                    ble.connect();
+                }
+            } catch (Exception e) {
+                IcarPhoneApp.saveCrash(Thread.currentThread(), e);
+                updateNotification("连接异常: " + e.getMessage());
             }
         });
     }

@@ -183,10 +183,20 @@ class BleClient {
 
         if (selectedAddress != null) {
             try {
-                connectDevice(adapter.getRemoteDevice(selectedAddress));
+                BluetoothDevice d = adapter.getRemoteDevice(selectedAddress);
+                if (d.getType() == BluetoothDevice.DEVICE_TYPE_CLASSIC
+                        || d.getType() == BluetoothDevice.DEVICE_TYPE_UNKNOWN) {
+                    /* 经典蓝牙设备：不尝试 GATT，提示改为先配对或重选 */
+                    setState("error", "所选设备不是 BLE 设备，请重选车机");
+                    return;
+                }
+                connectDevice(d);
                 return;
             } catch (IllegalArgumentException e) {
                 selectedAddress = null;
+            } catch (Exception e) {
+                setState("error", "连接异常: " + e.getMessage());
+                return;
             }
         }
         setState("idle", "请先选择车机设备（主界面点「选择车机」）");
