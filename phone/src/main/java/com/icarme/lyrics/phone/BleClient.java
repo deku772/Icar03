@@ -24,6 +24,10 @@ import java.util.UUID;
  *
  * 设备选择策略：手动选择一次后记住（SharedPreferences），
  * 之后默认直连所选设备；断线自动重连。
+ *
+ * v1.5 写入改造：所有写入（歌词分片/进度单包）统一经 BleWriteQueue 串行排队，
+ * 每片等 onCharacteristicWrite（ACK）后再发下一个，满足 BLE 单在途写限制，
+ * 修复"第 N 片写入失败"。
  */
 class BleClient {
 
@@ -74,6 +78,9 @@ class BleClient {
     private String state = "idle";
     private String selectedAddress;
     private boolean reconnectEnabled = false;
+
+    /** 写入队列：串行、等 ACK（v1.5 新增） */
+    private final BleWriteQueue writeQueue = new BleWriteQueue(this::writeRaw);
 
     BleClient(Context context, Listener listener) {
         this.context = context;
@@ -293,11 +300,20 @@ class BleClient {
             }
             setState("connected", "车机已连接，等待播放…");
         }
+
+        @Override
+        public void onCharacteristicWrite(BluetoothGatt g, BluetoothGattCharacteristic ch, int status) {
+            /* 每片/每包 ACK：放行队列下一个（v1.5 新增） */
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.w(TAG, "characteristic write status=" + status);
+            }
+            writeQueue.onWriteComplete();
+        }
     };
 
     /* ---------------- 推送 ---------------- */
 
-    /** 推歌词 JSON（自动分片，逐片带响应写入）。返回 false=未连接或打包失败 */
+    /** 推歌词 JSON（自动分片，经写入队列串行逐片发送）。返回 false=未连接或打包失败 */
     boolean pushLyrics(String json) {
         if (!isConnected()) return false;
         int payload = Math.max(20, mtu - 3 - 4); /* 减 ATT 头 3B + 分片头 4B */
@@ -308,7 +324,9 @@ class BleClient {
             return false;
         }
         if (pkts == null || pkts.length == 0) return false;
-        main.post(() -> writePackets(pkts, 0));
+        for (byte[] pkt : pkts) {
+            writeQueue.enqueue(chLyrics, pkt);
+        }
         return true;
     }
 
@@ -320,20 +338,11 @@ class BleClient {
             Log.w(TAG, "progress json too large: " + data.length);
             return false;
         }
-        main.post(() -> writeRaw(chProgress, data));
+        writeQueue.enqueue(chProgress, data);
         return true;
     }
 
-    private void writePackets(byte[][] pkts, int index) {
-        if (!isConnected() || index >= pkts.length) return;
-        boolean ok = writeRaw(chLyrics, pkts[index]);
-        if (!ok) {
-            setState("error", "写入失败（第 " + (index + 1) + "/" + pkts.length + " 片）");
-            return;
-        }
-        main.postDelayed(() -> writePackets(pkts, index + 1), 15); /* 片间 15ms 防拥塞 */
-    }
-
+    /** 供 WriteQueue 调用的底层写（直接发起，不排队） */
     private boolean writeRaw(BluetoothGattCharacteristic ch, byte[] data) {
         if (ch == null || gatt == null) return false;
         ch.setValue(data);
@@ -346,6 +355,7 @@ class BleClient {
     void disconnect() {
         reconnectEnabled = false;
         cancelConnectWatchdog();
+        writeQueue.clear();
         if (gatt != null) {
             try { gatt.disconnect(); gatt.close(); } catch (Exception ignored) {}
         }
@@ -354,6 +364,7 @@ class BleClient {
 
     private void cleanup() {
         cancelConnectWatchdog();
+        writeQueue.clear();
         gatt = null;
         chLyrics = null;
         chProgress = null;
