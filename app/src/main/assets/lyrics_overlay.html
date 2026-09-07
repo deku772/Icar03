@@ -379,26 +379,85 @@ function drawTop(line, now, alpha){
   ctx.globalAlpha = 1;
 }
 
-function drawWallpaper(line, now, idx, alpha){
+/** 绘制单行（非当前行用；mode 决定字号基准） */
+function drawRollLine(line, now, x, y, fs, color, mode){
+  var font = 'bold '+Math.round(fs)+'px '+FONT;
+  ctx.font = font;
+  ctx.textAlign = 'left';
+  var tw = ctx.measureText(line.txt).width;
+  var maxW = (mode==='top') ? W*0.9 : W*0.86;
+  if (tw > maxW && tw > 0){
+    var s = maxW/tw;
+    ctx.save();
+    ctx.translate(x, y); ctx.scale(s, s);
+    ctx.fillStyle = color;
+    ctx.fillText(line.txt, 0, 0);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = color;
+    ctx.fillText(line.txt, x, y);
+  }
+  ctx.textAlign = 'center';
+}
+
+function drawTop(line, now, alpha){
   var th = THEME[S.theme];
-  var lay = getLayout(line, 'wallpaper');
+  var lay = getLayout(line, 'top');
   var x0 = (W - lay.total)/2;
-  var y = H*0.46;
+  var y = Math.max(lay.fs+10, H*0.055 + lay.fs);
   ctx.globalAlpha = alpha;
-  ctx.shadowColor = th.shadow; ctx.shadowBlur = 10;
+  ctx.shadowColor = th.shadow; ctx.shadowBlur = 6;
   paintKaraoke(line, now, x0, y, lay, th);
   ctx.shadowBlur = 0;
   if (line.trans){
-    drawTextFit(line.trans, W/2, y + lay.fs*0.72,
+    drawTextFit(line.trans, W/2, y + lay.fs*0.95,
+      Math.round(lay.fs*0.6)+'px '+FONT, th.sub, W*0.82);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * 壁纸模式：多行歌谱滚动（当前行 + 上2下4，共7行）
+ * 当前行大号高亮 + 逐字卡拉OK变色，其余行灰色小一号，随进度平滑滚动。
+ */
+function drawWallpaper(line, now, idx, alpha){
+  var th = THEME[S.theme];
+  var up = 2, down = 4;
+  var fs = fontSizeOf('wallpaper');
+  var subFs = Math.round(fs*0.52);          /* 非当前行字号 */
+  var gap = Math.round(fs*0.5);             /* 行距 */
+  var rowH = fs*0.78;
+  var y0 = H*0.5 - rowH*0.5;                /* 当前行基准线 */
+
+  /* 当前行：大号 + 逐字卡拉OK + 微发光 */
+  var lay = getLayout(line, 'wallpaper');
+  var x0 = (W - lay.total)/2;
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = th.shadow; ctx.shadowBlur = 10;
+  paintKaraoke(line, now, x0, y0, lay, th);
+  ctx.shadowBlur = 0;
+  /* 当前行翻译（若有） */
+  if (line.trans){
+    drawTextFit(line.trans, W/2, y0 + lay.fs*0.72,
       Math.round(lay.fs*0.5)+'px '+FONT, th.sub, W*0.8);
   }
-  var nxt = (idx+1 < S.lines.length) ? S.lines[idx+1] : null;
-  if (nxt){
-    var saved = ctx.globalAlpha;
-    ctx.globalAlpha = saved*0.55;
-    drawTextFit(nxt.txt, W/2, y + lay.fs*1.7,
-      Math.round(lay.fs*0.42)+'px '+FONT, th.next, W*0.8);
-    ctx.globalAlpha = saved;
+
+  /* 上方 2 行（已唱，暗） */
+  for (var u=1; u<=up; u++){
+    var li = idx-u;
+    if (li < 0) continue;
+    var l = S.lines[li];
+    var yy = y0 - rowH*u;
+    drawRollLine(l, now, W/2, yy, subFs, th.next, 'wallpaper');
+  }
+  /* 下方 4 行（未唱，稍亮） */
+  var upColor = th.sub;
+  for (var d=1; d<=down; d++){
+    var di = idx+d;
+    if (di >= S.lines.length) continue;
+    var dl = S.lines[di];
+    var dy = y0 + rowH*d;
+    drawRollLine(dl, now, W/2, dy, subFs, upColor, 'wallpaper');
   }
   ctx.globalAlpha = 1;
 }
