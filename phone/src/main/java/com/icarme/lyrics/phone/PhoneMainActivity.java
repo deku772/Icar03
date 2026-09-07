@@ -137,7 +137,8 @@ public class PhoneMainActivity extends Activity {
                 .append("\n▸ BLE: ").append(PlaybackService.running ? m.bleState : "未启动");
 
         if (PlaybackService.running) {
-            sb.append("\n▸ 媒体检测: ").append(m.diag.isEmpty() ? "初始化中…" : m.diag);
+            sb.append("\n▸ 监听服务: ").append(m.listenerState.isEmpty() ? "查询中…" : m.listenerState)
+                    .append("\n▸ 媒体检测: ").append(m.diag.isEmpty() ? "初始化中…" : m.diag);
             if (!m.track.isEmpty()) {
                 sb.append("\n▸ 当前曲目: ").append(m.track)
                         .append(m.artist.isEmpty() ? "" : " - " + m.artist);

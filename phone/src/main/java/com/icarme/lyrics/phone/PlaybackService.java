@@ -6,24 +6,42 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
+import android.service.notification.NotificationListenerService;
 import android.text.TextUtils;
 import android.util.Log;
 
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * 手机端总调度（前台服务）：
  *   播放监控 → 换歌取词 → BLE 推歌词 → 定时推进度
+ *
+ * v1.5: 媒体轮询逻辑移入本服务。原因：ColorOS 覆盖安装 APK 后不重新绑定
+ * NotificationListenerService，旧版轮询挂在 onListenerConnected() 里永远不启动，
+ * 表现为媒体检测一直"初始化中"。
+ * 现改为：
+ *   1) 本服务直接用 MediaSessionManager.getActiveSessions(显式组件名) 读会话
+ *      —— 只要用户授权过通知使用权即可，不依赖监听服务被系统绑定
+ *   2) 启动时调 NotificationListenerService.requestRebind() 请求系统重绑监听
+ *      （重绑成功后 getActiveNotifications 通知兜底才可用）
  */
 public class PlaybackService extends Service implements NotificationListener.Callback {
 
     private static final String TAG = "IcarLyrics.Phone";
     private static final long PROGRESS_INTERVAL_MS = 800;
+    private static final long MEDIA_POLL_INTERVAL_MS = 2000;
 
     public static volatile boolean running = false;
     private static PlaybackService instance;
@@ -49,6 +67,25 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     private BleClient ble;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final LyricsFetcher fetcher = new LyricsFetcher();
+
+    /* ---------------- 媒体监控（v1.5 迁入） ---------------- */
+
+    private MediaSessionManager smm;
+    private MediaController activeController;
+    private boolean nlPermissionOk = true;   /* 通知使用权是否可用（SecurityException 时置 false） */
+    private Runnable mediaPollTask;
+
+    private final MediaController.Callback controllerCb = new MediaController.Callback() {
+        @Override
+        public void onMetadataChanged(MediaMetadata metadata) {
+            emitTrack(metadata);
+        }
+
+        @Override
+        public void onPlaybackStateChanged(PlaybackState state) {
+            emitProgress(state);
+        }
+    };
 
     private String curKey = "";        /* track|artist 去重 */
     private long curDuration = 0;
@@ -81,6 +118,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         }
         mon.bleState = "未连接";
         NotificationListener.setCallback(this);
+        startMediaMonitor();
         main.post(() -> {
             try {
                 if (ble.getSelectedAddressText() == null) {
@@ -100,12 +138,14 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         running = false;
         instance = null;
         NotificationListener.setCallback(null);
+        stopMediaPolling();
         stopProgressTask();
         if (ble != null) ble.disconnect();
         /* 重置监控快照，避免残留旧状态 */
         mon.track = "";
         mon.artist = "";
         mon.diag = "";
+        mon.listenerState = "";
         mon.fetchState = "未取词";
         mon.fetchSource = "";
         mon.lrcPreview = "";
@@ -114,6 +154,129 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         mon.bleState = "未连接";
         stopForeground(true);
         super.onDestroy();
+    }
+
+    /* ---------------- 媒体监控（轮询 + 回调双保险） ---------------- */
+
+    private void startMediaMonitor() {
+        smm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
+
+        /* 请求系统重新绑定通知监听（覆盖安装后 ColorOS 不自动重绑）。
+         * 仅在用户已授权时有效；requestRebind 本身无副作用。 */
+        try {
+            NotificationListenerService.requestRebind(NotificationListener.COMPONENT);
+            Log.i(TAG, "requestRebind issued");
+        } catch (Throwable t) {
+            Log.w(TAG, "requestRebind failed", t);
+        }
+
+        /* 轮询 + 回调双保险：低频轮询兜底，回调实时跟帧 */
+        mediaPollTask = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    pollMedia();
+                } catch (Exception e) {
+                    IcarPhoneApp.saveCrash(Thread.currentThread(), e);
+                }
+                main.postDelayed(this, MEDIA_POLL_INTERVAL_MS);
+            }
+        };
+        main.post(mediaPollTask);
+    }
+
+    private void stopMediaPolling() {
+        if (mediaPollTask != null) {
+            main.removeCallbacks(mediaPollTask);
+            mediaPollTask = null;
+        }
+        if (activeController != null) {
+            try { activeController.unregisterCallback(controllerCb); } catch (Exception ignored) {}
+            activeController = null;
+        }
+    }
+
+    private void pollMedia() {
+        /* 上报通知监听绑定状态（监控台可见，判断 requestRebind 是否生效） */
+        mon.listenerState = NotificationListener.isListenerConnected()
+                ? "已绑定" : "未绑定（已请求重绑）";
+
+        if (smm == null) {
+            diag("媒体会话服务不可用");
+            return;
+        }
+
+        MediaController c = pickController();
+        if (c == null && NotificationListener.isListenerConnected()) {
+            /* getActiveSessions 空列表时的兜底：扫媒体通知提取 token */
+            c = NotificationListener.pickFromNotifications(this);
+        }
+        if (c == null) return;
+
+        if (c != activeController) {
+            if (activeController != null) {
+                try { activeController.unregisterCallback(controllerCb); } catch (Exception ignored) {}
+            }
+            activeController = c;
+            c.registerCallback(controllerCb, main);
+        }
+        /* 每轮都补发一次，防止回调丢失（回调 + 轮询双保险） */
+        emitTrack(c.getMetadata());
+        PlaybackState ps = c.getPlaybackState();
+        if (ps != null) emitProgress(ps);
+    }
+
+    /** 会话挑选：正在播放 > 蓝牙栈 > 有元数据（显式组件名，不依赖监听服务绑定） */
+    private MediaController pickController() {
+        List<MediaController> list;
+        try {
+            list = smm.getActiveSessions(NotificationListener.COMPONENT);
+            if (!nlPermissionOk) {
+                nlPermissionOk = true;
+                diag("媒体会话读取恢复");
+            }
+        } catch (SecurityException e) {
+            nlPermissionOk = false;
+            diag("无权限读媒体会话（点「1. 授权」重新授予通知使用权）");
+            return null;
+        } catch (Exception e) {
+            diag("读会话异常: " + e.getClass().getSimpleName());
+            return null;
+        }
+
+        List<String> names = new ArrayList<>();
+        MediaController playing = null;   /* 正在播放 */
+        MediaController btStack = null;   /* 蓝牙栈会话 */
+        MediaController anyMeta = null;   /* 有元数据的会话 */
+
+        for (MediaController ctl : list) {
+            String pkg = ctl.getPackageName();
+            if (pkg == null) continue;
+            String shortName = NotificationListener.shortPkg(pkg);
+            names.add(shortName + (NotificationListener.isPlaying(ctl) ? "(播放中)" : ""));
+            if (playing == null && NotificationListener.isPlaying(ctl)) playing = ctl;
+            if (btStack == null && pkg.contains("bluetooth")) btStack = ctl;
+            if (anyMeta == null && ctl.getMetadata() != null) anyMeta = ctl;
+        }
+
+        if (!names.isEmpty()) {
+            diag("会话: " + String.join(", ", names));
+        } else {
+            diag("无媒体会话（放歌后仍无会话则检查通知使用权）");
+        }
+
+        /* 优先级：正在播放 > 蓝牙栈 > 有元数据
+         * 注：手机连车机蓝牙听歌时，音频走 A2DP，可能出现 com.android.bluetooth 会话；
+         * 手机本地外放时直接选正在播放的会话 */
+        MediaController pick = (playing != null) ? playing
+                : (btStack != null) ? btStack : anyMeta;
+        if (pick != null) {
+            String state = NotificationListener.isPlaying(pick) ? "播放中" : "未播放";
+            diag("选中: " + NotificationListener.shortPkg(pick.getPackageName()) + " (" + state + ")");
+        } else if (!names.isEmpty()) {
+            diag("会话均无元数据");
+        }
+        return pick;
     }
 
     /* ---------------- 播放监控回调（主线程） ---------------- */
@@ -147,6 +310,10 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     @Override
     public void onDiag(String line) {
+        diag(line);
+    }
+
+    private void diag(String line) {
         /* 媒体检测诊断：仅无曲目时更新通知，避免刷屏 */
         mon.diag = line;
         if (curKey.isEmpty()) {
@@ -154,11 +321,35 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         }
     }
 
+    /* ---------------- 数据上报（来自 controllerCb / 轮询补发） ---------------- */
+
+    private void emitTrack(MediaMetadata md) {
+        if (md == null) return;
+        String track = textOf(md, MediaMetadata.METADATA_KEY_TITLE);
+        String artist = textOf(md, MediaMetadata.METADATA_KEY_ARTIST);
+        String album = textOf(md, MediaMetadata.METADATA_KEY_ALBUM);
+        long dur = md.getLong(MediaMetadata.METADATA_KEY_DURATION);
+        if (track != null && !track.isEmpty()) {
+            onTrackChanged(track, artist, album, dur);
+        }
+    }
+
+    private void emitProgress(PlaybackState ps) {
+        if (ps == null) return;
+        onProgress(ps.getPosition(), ps.getState() == PlaybackState.STATE_PLAYING);
+    }
+
+    private static String textOf(MediaMetadata md, String key) {
+        String s = md.getString(key);
+        return (s == null || s.equals("<unknown>")) ? null : s;
+    }
+
     /* ---------------- 取词 + 推送 ---------------- */
 
     /** 全局监控快照（主界面轮询显示）：媒体链路每一步的状态 */
     static final class Monitor {
         volatile String diag = "";          /* 媒体检测诊断 */
+        volatile String listenerState = ""; /* 通知监听绑定状态 */
         volatile String track = "";         /* 当前曲目（空=未检测到播放） */
         volatile String artist = "";
         volatile String fetchState = "未取词"; /* 取词中/已获取(lrc)/未找到/未取词 */
