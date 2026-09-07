@@ -76,9 +76,12 @@ public class MainActivity extends Activity {
     private void refreshStatus() {
         boolean overlay = Settings.canDrawOverlays(this);
         boolean svc = OverlayService.running;
+        boolean ble = BleService.running;
         tvStatus.setText("悬浮窗权限: " + (overlay ? "已授予" : "未授予（需 ADB）")
-                + "\n服务状态: " + (svc ? "运行中" : "已停止")
-                + "\nBLE 名称: " + BleService.advertisedName());
+                + "\n悬浮服务: " + (svc ? "运行中" : "已停止")
+                + "\nBLE 服务: " + (ble ? "运行中" : "已停止")
+                + "\nBLE 广播: " + BleService.advState
+                + "\n蓝牙名称: " + BleService.advertisedName());
         btnService.setText(svc ? "停止 歌词悬浮" : "启动 歌词悬浮");
     }
 
@@ -94,6 +97,8 @@ public class MainActivity extends Activity {
             startService(new Intent(this, OverlayService.class));
             startService(new Intent(this, BleService.class));
         }
-        refreshStatus();
+        /* 服务/广播启动异步，延迟刷新状态 */
+        new android.os.Handler(getMainLooper()).postDelayed(this::refreshStatus, 300);
+        new android.os.Handler(getMainLooper()).postDelayed(this::refreshStatus, 1500);
     }
 }

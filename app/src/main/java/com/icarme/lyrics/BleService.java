@@ -55,14 +55,46 @@ public class BleService extends Service {
     private BluetoothLeAdvertiser advertiser;
     private Handler main;
     private final Reassembler reassembler = new Reassembler();
+
+    /** 广播/服务器状态（主界面与悬浮窗展示用） */
+    public static volatile String advState = "未启动";   /* 未启动/启动中/广播中/广播失败:xx/蓝牙未开启/服务异常 */
+
     private final AdvertiseCallback advCb = new AdvertiseCallback() {
         @Override public void onStartSuccess(AdvertiseSettings settingsInEffect) {
             Log.i(TAG, "advertising started");
+            advState = "广播中";
+            reportAdvState();
         }
         @Override public void onStartFailure(int errorCode) {
             Log.w(TAG, "advertising failed: " + errorCode);
+            advState = "广播失败(" + advErrText(errorCode) + ")";
+            reportAdvState();
         }
     };
+
+    private static String advErrText(int code) {
+        switch (code) {
+            case AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE: return "数据超长";
+            case AdvertiseCallback.ADVERTISE_FAILED_TOO_MANY_ADVERTISERS: return "广播器占用";
+            case AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED: return "已在广播";
+            case AdvertiseCallback.ADVERTISE_FAILED_INTERNAL_ERROR: return "内部错误";
+            case AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED: return "芯片不支持";
+            default: return "错误" + code;
+        }
+    }
+
+    /** 广播状态变化：更新前台通知 + 推悬浮窗 */
+    private void reportAdvState() {
+        main.post(() -> {
+            updateNotification("BLE: " + advState);
+            try {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("type", "conn");
+                o.put("advState", advState);
+                OverlayService.push(o.toString());
+            } catch (Exception ignored) {}
+        });
+    }
 
     @Override
     public IBinder onBind(Intent intent) { return null; }
@@ -93,13 +125,25 @@ public class BleService extends Service {
 
     private void startBle() {
         BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
-        if (bm == null) { Log.w(TAG, "no bluetooth manager"); return; }
+        if (bm == null) {
+            advState = "无蓝牙管理器";
+            reportAdvState();
+            return;
+        }
         BluetoothAdapter adapter = bm.getAdapter();
-        if (adapter == null || !adapter.isEnabled()) { Log.w(TAG, "bluetooth off"); return; }
+        if (adapter == null || !adapter.isEnabled()) {
+            advState = "蓝牙未开启";
+            reportAdvState();
+            return;
+        }
 
         try {
             gattServer = bm.openGattServer(this, serverCallback);
-            if (gattServer == null) { Log.w(TAG, "openGattServer null"); return; }
+            if (gattServer == null) {
+                advState = "GATT服务创建失败";
+                reportAdvState();
+                return;
+            }
 
             BluetoothGattCharacteristic lyrics = new BluetoothGattCharacteristic(
                     CH_LYRICS,
@@ -140,17 +184,56 @@ public class BleService extends Service {
                             .setTimeout(0)
                             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
                             .build();
+                    /* 广播包上限 31 字节：Flags(3) + 128位UUID(18) = 21，设备名(13+) 放不进，
+                     * 必须放扫描响应包，否则 ADVERTISE_FAILED_DATA_TOO_LARGE 直接广播失败 */
                     AdvertiseData data = new AdvertiseData.Builder()
-                            .setIncludeDeviceName(true)
+                            .setIncludeDeviceName(false)
+                            .setIncludeTxPowerLevel(false)
                             .addServiceUuid(new ParcelUuid(SVC_LYRICS))
                             .build();
-                    advertiser.startAdvertising(settings, data, advCb);
+                    AdvertiseData scanRsp = new AdvertiseData.Builder()
+                            .setIncludeDeviceName(true)
+                            .build();
+                    advState = "启动中";
+                    reportAdvState();
+                    advertiser.startAdvertising(settings, data, scanRsp, advCb);
+                } else {
+                    advState = "未取得广播器";
+                    reportAdvState();
                 }
+            } else {
+                advState = "芯片不支持多广播";
+                reportAdvState();
             }
-            Log.i(TAG, "GATT server ready");
+            Log.i(TAG, "GATT server ready, adv=" + advState);
         } catch (Exception e) {
             Log.e(TAG, "startBle failed", e);
+            advState = "服务异常: " + e.getClass().getSimpleName();
+            reportAdvState();
         }
+    }
+
+    /** 更新 BLE 前台通知文本（广播/连接状态可视化） */
+    private void updateNotification(String text) {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            Notification n;
+            if (Build.VERSION.SDK_INT >= 26) {
+                n = new Notification.Builder(this, "icarlyrics_ble")
+                        .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                        .setContentTitle("IcarLyrics BLE")
+                        .setContentText(text)
+                        .setOngoing(true)
+                        .build();
+            } else {
+                n = new Notification.Builder(this)
+                        .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                        .setContentText(text)
+                        .setOngoing(true)
+                        .build();
+            }
+            nm.notify(2, n);
+        } catch (Exception ignored) {}
     }
 
     public static String advertisedName() {

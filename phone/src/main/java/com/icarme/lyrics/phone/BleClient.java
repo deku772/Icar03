@@ -201,8 +201,37 @@ class BleClient {
 
     private void connectDevice(BluetoothDevice device) {
         reconnectEnabled = true;
-        setState("connecting", "连接中: " + (device.getName() == null ? device.getAddress() : device.getName()));
+        setState("connecting", "正在连接: " + nameOf(device) + "（等握手，一般 5-15 秒）");
         gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
+
+        /* 连接超时看门狗：15 秒未完成服务发现则视为连接失败，关闭重试 */
+        cancelConnectWatchdog();
+        main.postDelayed(connectWatchdog, 15000);
+    }
+
+    /** 连接超时看门狗（区分"连接中"卡死与正常慢握手） */
+    private final Runnable connectWatchdog = new Runnable() {
+        @Override public void run() {
+            if (state.equals("connecting")) {
+                setState("error", "连接超时（15秒无响应）。请确认：车机已启动歌词悬浮、蓝牙已开启、距离够近");
+                if (gatt != null) {
+                    try { gatt.disconnect(); gatt.close(); } catch (Exception ignored) {}
+                }
+                cleanup();
+                if (reconnectEnabled && selectedAddress != null) {
+                    main.postDelayed(BleClient.this::connect, 5000); /* 5秒后自动重试 */
+                }
+            }
+        }
+    };
+
+    private void cancelConnectWatchdog() {
+        main.removeCallbacks(connectWatchdog);
+    }
+
+    private static String nameOf(BluetoothDevice d) {
+        try { return d.getName() == null ? d.getAddress() : d.getName(); }
+        catch (SecurityException e) { return d.getAddress(); }
     }
 
     private void reconnectNow() {
@@ -218,10 +247,14 @@ class BleClient {
         @Override
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
+                cancelConnectWatchdog();
+                setState("connecting", "物理连接成功，协商 MTU…");
                 g.requestMtu(512);
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
+                cancelConnectWatchdog();
                 cleanup();
-                setState("disconnected", "车机连接断开");
+                setState("disconnected", "车机连接断开"
+                        + (status != 0 ? "（错误码 " + status + "）" : ""));
                 if (reconnectEnabled && selectedAddress != null) {
                     main.postDelayed(BleClient.this::connect, 3000); /* 自动重连已选设备 */
                 }
@@ -232,6 +265,10 @@ class BleClient {
         public void onMtuChanged(BluetoothGatt g, int mtu, int status) {
             BleClient.this.mtu = mtu;
             if (status == BluetoothGatt.GATT_SUCCESS) {
+                setState("connecting", "MTU=" + mtu + "，发现服务…");
+                g.discoverServices();
+            } else {
+                setState("connecting", "MTU 协商失败，发现服务…");
                 g.discoverServices();
             }
         }
@@ -239,18 +276,19 @@ class BleClient {
         @Override
         public void onServicesDiscovered(BluetoothGatt g, int status) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                setState("error", "服务发现失败");
+                setState("error", "服务发现失败（错误码 " + status + "）");
                 return;
             }
+            setState("connecting", "服务已发现，校验歌词特征…");
             BluetoothGattService svc = g.getService(SVC_LYRICS);
             if (svc == null) {
-                setState("error", "车机未提供 IcarLyrics 服务");
+                setState("error", "车机未提供 IcarLyrics 服务（车机端版本旧或未启动）");
                 return;
             }
             chLyrics = svc.getCharacteristic(CH_LYRICS);
             chProgress = svc.getCharacteristic(CH_PROGRESS);
             if (chLyrics == null) {
-                setState("error", "特征缺失");
+                setState("error", "歌词特征缺失（车机端版本旧）");
                 return;
             }
             setState("connected", "车机已连接，等待播放…");
@@ -298,6 +336,8 @@ class BleClient {
     /* ---------------- 生命周期 ---------------- */
 
     void disconnect() {
+        reconnectEnabled = false;
+        cancelConnectWatchdog();
         if (gatt != null) {
             try { gatt.disconnect(); gatt.close(); } catch (Exception ignored) {}
         }
@@ -305,6 +345,7 @@ class BleClient {
     }
 
     private void cleanup() {
+        cancelConnectWatchdog();
         gatt = null;
         chLyrics = null;
         chProgress = null;

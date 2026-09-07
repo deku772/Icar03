@@ -67,7 +67,8 @@ var S = {
   demo: false,
   loop: true,
   connected: false,       // BLE 手机端是否已连接（conn 消息更新）
-  connDevice: ''          // 已连接的设备名/地址
+  connDevice: '',         // 已连接的设备名/地址
+  advState: ''            // 车机 BLE 广播状态（conn 消息更新）
 };
 
 var THEME = {
@@ -199,9 +200,12 @@ function handleProgress(msg){
 
 function handleCmd(msg){
   if (msg.type === 'conn'){
-    /* BLE 连接状态（车机原生转发） */
-    S.connected = !!msg.connected;
-    S.connDevice = msg.device || '';
+    /* BLE 连接/广播状态（车机原生转发） */
+    if (typeof msg.advState === 'string') S.advState = msg.advState;
+    if (typeof msg.connected === 'boolean'){
+      S.connected = msg.connected;
+      S.connDevice = msg.device || '';
+    }
     syncPanel();
     return;
   }
@@ -391,12 +395,21 @@ function draw(){
   if (!S.lines.length) {
     /* 无歌词数据：显示等待提示（半透明小字），证明悬浮窗活着且链路在等数据 */
     if (!S.demo){
-      var th = THEME[S.theme];
+      var fs = Math.round(clamp(H*0.03, 16, 30));
+      ctx.font = fs+'px '+FONT;
       ctx.textAlign = 'center';
-      ctx.font = Math.round(clamp(H*0.03, 16, 30))+'px '+FONT;
       ctx.fillStyle = S.theme==='dark' ? 'rgba(255,255,255,.45)' : 'rgba(27,35,51,.45)';
-      var msg = S.connected ? '等待歌词…（手机已连接，放歌即显示）' : '等待手机连接…';
-      ctx.fillText(msg, W/2, H*0.055 + clamp(H*0.03, 16, 30));
+      var msg;
+      if (S.connected){
+        msg = '已连接手机 · 等待放歌…';
+      } else if (S.advState && S.advState !== '广播中'){
+        msg = 'BLE ' + S.advState + ' · 请检查车机蓝牙';
+      } else if (S.advState === '广播中'){
+        msg = '广播中 · 等待手机连接…';
+      } else {
+        msg = '等待手机连接…';
+      }
+      ctx.fillText(msg, W/2, H*0.055 + fs);
     }
     return;
   }
