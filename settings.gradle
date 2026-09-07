@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = 'IcarLyrics'
-include ':app'
+include ':app', ':phone'

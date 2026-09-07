@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'ea9fa3db-9228-43e7-8b54-47511df2a18f'
-  PropagateID: 'ea9fa3db-9228-43e7-8b54-47511df2a18f'
-  ReservedCode1: 'b735a5e4-5e6e-4f89-b344-743da2706636'
-  ReservedCode2: 'b735a5e4-5e6e-4f89-b344-743da2706636'
+  ProduceID: 'c4ce577e-24fa-404e-a59a-a9d3840d9042'
+  PropagateID: 'c4ce577e-24fa-404e-a59a-a9d3840d9042'
+  ReservedCode1: '96805824-dea4-4ade-a790-8189478ca661'
+  ReservedCode2: '96805824-dea4-4ade-a790-8189478ca661'
 ---
 
 # Icar03
@@ -18,6 +18,7 @@ iCAR 03 车机第三方应用研究与自研方案仓库
 - `analysis-report.md` — 03系列车机应用（9.9Studio）架构分析：车机适配三板斧、悬浮窗实现、歌词链路、授权机制
 - `bluetooth-lyrics-plan.md` — 自研方案：手机端取词 + BLE 蓝牙推送 + 车机渲染，车机零流量
 - `app/` — **IcarLyrics v1.0** 车机端（自研，100% 原创代码，零第三方依赖）
+- `phone/` — **IcarLyrics 手机端 v1.0**（自研，播放监控 + 三源取词 + BLE 推送）
 
 ## IcarLyrics 车机端（已完成 v1.0）
 
@@ -60,9 +61,27 @@ adb shell am start -n com.icarme.lyrics/.MainActivity
 gradle assembleDebug   # Java 17+，AGP 8.13，minSdk/targetSdk 28（车机 Android 9）
 ```
 
-### 手机端（下一步 M3）
+### 手机端（已完成 v1.0）
 
-手机 App 读本机播放状态（NotificationListener / MediaSessionManager）→ lrclib/网易云/QQ 取词 → 作为 GATT Client 连接车机推送。协议已就绪，等手机端实现。
+手机 App 读本机播放状态（MediaSessionManager，优先蓝牙会话）→ 三源降级取词（lrclib/网易云/QQ，内存缓存）→ 作为 GATT Client 连接车机推送歌词与进度。
+
+```
+phone/src/main/java/com/icarme/lyrics/phone/
+├── PlaybackService.java       总调度前台服务：监控→取词→推送循环
+├── NotificationListener.java  通知使用权凭证 + MediaSession 轮询
+├── LyricsFetcher.java         三源降级取词 + 内存缓存
+├── BleClient.java             GATT Client：扫描/连接/MTU/分片推送/自动重连
+├── BlePacketizer.java         分片打包（frameId+seq+total 头）
+└── PhoneMainActivity.java     权限引导 + 服务开关
+```
+
+**手机端使用**：装 APK → 授权（蓝牙/定位/通知使用权）→ 手机蓝牙先配对车机 → 启动推送服务 → 任意音乐 App 放歌。
+
+**手机安装（ADB）**：
+```bash
+adb install IcarLyrics-Phone-v1.0-debug.apk
+# 通知使用权需在系统设置里手动开启（跳转由 App 引导）
+```
 
 ## 项目目标
 

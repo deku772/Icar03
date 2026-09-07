@@ -1,5 +1,6 @@
 package com.icarme.lyrics;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -9,7 +10,8 @@ import java.nio.charset.StandardCharsets;
  *   byte 0-1 : frameId  uint16（新歌词帧递增，换歌时作废旧分片）
  *   byte 2   : seq      uint8（从 0 开始）
  *   byte 3   : total    uint8（总片数）
- *   byte 4+  : UTF-8 JSON 片段
+ *   byte 4+  : UTF-8 JSON 片段（原始字节累积，集齐后一次性解码，
+ *              避免多字节字符被分片边界切断产生乱码）
  *
  * frameId 变化即重置缓冲。全部收齐后拼出 JSON 字符串上抛。
  */
@@ -23,7 +25,7 @@ final class Reassembler {
     private int frameId = -1;
     private int total = 0;
     private int received = 0;
-    private StringBuilder buf;
+    private ByteArrayOutputStream buf;
 
     /** 丢弃当前未完成帧 */
     void reset() {
@@ -49,18 +51,17 @@ final class Reassembler {
             frameId = fid;
             total = tot;
             received = 0;
-            buf = new StringBuilder();
-        } else if (tot != total || seq >= total) {
+            buf = new ByteArrayOutputStream();
+        } else if (tot != total || seq >= total || buf == null) {
             /* 参数不一致：丢弃该片 */
             return null;
         }
 
-        if (buf == null) buf = new StringBuilder();
-        buf.append(new String(packet, 4, packet.length - 4, StandardCharsets.UTF_8));
+        buf.write(packet, 4, packet.length - 4);
         received++;
 
         if (received >= total) {
-            String json = buf.toString();
+            String json = new String(buf.toByteArray(), StandardCharsets.UTF_8);
             reset();
             return new Frame(json);
         }
