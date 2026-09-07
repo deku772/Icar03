@@ -6,22 +6,51 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
- * BLE GATT 客户端：扫描 IcarLyrics 车机 → 连接 → 协商 MTU → 推送歌词/进度。
+ * BLE GATT 客户端：连接 IcarLyrics 车机 → 协商 MTU → 推送歌词/进度。
+ *
+ * 设备选择策略：手动选择一次后记住（SharedPreferences），
+ * 之后默认直连所选设备；断线自动重连。
  */
 class BleClient {
 
     interface Listener {
         void onState(String state, String detail);
+    }
+
+    interface DevicesCallback {
+        void onDevices(List<DeviceInfo> devices);
+    }
+
+    /** 列表展示用设备信息（名称可为空，地址唯一） */
+    static class DeviceInfo {
+        final String address;
+        final String name;
+        final boolean bonded;
+
+        DeviceInfo(String address, String name, boolean bonded) {
+            this.address = address;
+            this.name = name;
+            this.bonded = bonded;
+        }
+
+        @Override
+        public String toString() {
+            return (name == null || name.isEmpty()) ? address : name + " (" + address + ")";
+        }
     }
 
     static final UUID SVC_LYRICS  = UUID.fromString("0000A100-CA21-4B58-9C2F-6B1F3C0E9A01");
@@ -30,7 +59,8 @@ class BleClient {
     static final UUID CH_CMD      = UUID.fromString("0000A103-CA21-4B58-9C2F-6B1F3C0E9A01");
 
     private static final String TAG = "IcarLyrics.Phone";
-    private static final String DEVICE_NAME_PREFIX = "iCAR";
+    private static final String PREFS = "icarlyrics_phone";
+    private static final String KEY_DEVICE = "target_device";
 
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -42,23 +72,104 @@ class BleClient {
     private BluetoothGattCharacteristic chProgress;
     private int mtu = 20;
     private String state = "idle";
+    private String selectedAddress;
+    private boolean reconnectEnabled = false;
 
     BleClient(Context context, Listener listener) {
         this.context = context;
         this.listener = listener;
+        this.selectedAddress = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_DEVICE, null);
     }
 
     String getState() { return state; }
+
+    String getSelectedAddressText() { return selectedAddress; }
+
+    String getSelectedName() {
+        String addr = selectedAddress;
+        if (addr == null) return null;
+        try {
+            BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+            BluetoothDevice d = bm.getAdapter().getRemoteDevice(addr);
+            return d.getName() == null ? addr : d.getName();
+        } catch (Exception e) {
+            return addr;
+        }
+    }
 
     boolean isConnected() {
         return gatt != null && chLyrics != null;
     }
 
+    /* ---------------- 设备选择 ---------------- */
+
+    /** 手动选择设备并立即连接（记住默认，后续默认直连） */
+    void connectTo(String address) {
+        selectedAddress = address;
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_DEVICE, address).apply();
+        reconnectEnabled = true;
+        reconnectNow();
+    }
+
+    void clearSelectedDevice() {
+        selectedAddress = null;
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().remove(KEY_DEVICE).apply();
+        reconnectEnabled = false;
+        disconnect();
+    }
+
     /* ---------------- 扫描与连接 ---------------- */
 
+    /** 列出可连接设备：已配对设备 + 6 秒扫描发现的新设备 */
+    void scanForDevices(final DevicesCallback cb) {
+        BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+        BluetoothAdapter adapter = (bm == null) ? null : bm.getAdapter();
+        if (adapter == null || !adapter.isEnabled()) {
+            cb.onDevices(new ArrayList<>());
+            return;
+        }
+
+        List<DeviceInfo> all = new ArrayList<>();
+        if (hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
+            for (BluetoothDevice d : adapter.getBondedDevices()) {
+                all.add(new DeviceInfo(d.getAddress(), d.getName(), true));
+            }
+        }
+
+        boolean scanning = false;
+        try {
+            if (hasPermission(Manifest.permission.BLUETOOTH_SCAN) && !adapter.isDiscovering()) {
+                BluetoothAdapter.LeScanCallback leCb = (device, rssi, scanRecord) -> {
+                    String n = device.getName();
+                    if (n == null) return;
+                    for (DeviceInfo di : all) {
+                        if (di.address.equals(device.getAddress())) return;
+                    }
+                    all.add(new DeviceInfo(device.getAddress(), n, false));
+                    cb.onDevices(new ArrayList<>(all));
+                };
+                adapter.startLeScan(leCb);
+                scanning = true;
+                main.postDelayed(() -> {
+                    try { adapter.stopLeScan(leCb); } catch (Exception ignored) {}
+                    cb.onDevices(new ArrayList<>(all));
+                }, 6000);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "scan error", e);
+        }
+
+        if (!scanning) {
+            cb.onDevices(new ArrayList<>(all));
+        }
+    }
+
+    /** 默认连接：已选设备直连；未选择时提示 */
     void connect() {
         if (isConnected()) return;
-        setState("scanning", "正在扫描车机…");
         BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = (bm == null) ? null : bm.getAdapter();
         if (adapter == null || !adapter.isEnabled()) {
@@ -70,19 +181,29 @@ class BleClient {
             return;
         }
 
-        /* 已绑定设备优先直连；否则扫描 */
-        for (BluetoothDevice d : adapter.getBondedDevices()) {
-            if (d.getName() != null && d.getName().startsWith(DEVICE_NAME_PREFIX)) {
-                connectDevice(d);
+        if (selectedAddress != null) {
+            try {
+                connectDevice(adapter.getRemoteDevice(selectedAddress));
                 return;
-                }
+            } catch (IllegalArgumentException e) {
+                selectedAddress = null;
+            }
         }
-        setState("error", "未找到已配对的 iCAR 车机，请先在系统蓝牙里完成配对");
+        setState("idle", "请先选择车机设备（主界面点「选择车机」）");
     }
 
     private void connectDevice(BluetoothDevice device) {
-        setState("connecting", "连接中: " + device.getName());
+        reconnectEnabled = true;
+        setState("connecting", "连接中: " + (device.getName() == null ? device.getAddress() : device.getName()));
         gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
+    }
+
+    private void reconnectNow() {
+        if (gatt != null) {
+            try { gatt.disconnect(); gatt.close(); } catch (Exception ignored) {}
+        }
+        cleanup();
+        if (selectedAddress != null) connect();
     }
 
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
@@ -94,7 +215,9 @@ class BleClient {
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                 cleanup();
                 setState("disconnected", "车机连接断开");
-                main.postDelayed(BleClient.this::connect, 3000); /* 自动重连 */
+                if (reconnectEnabled && selectedAddress != null) {
+                    main.postDelayed(BleClient.this::connect, 3000); /* 自动重连已选设备 */
+                }
             }
         }
 
@@ -102,7 +225,7 @@ class BleClient {
         public void onMtuChanged(BluetoothGatt g, int mtu, int status) {
             BleClient.this.mtu = mtu;
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                gatt.discoverServices();
+                g.discoverServices();
             }
         }
 
@@ -112,7 +235,7 @@ class BleClient {
                 setState("error", "服务发现失败");
                 return;
             }
-            android.bluetooth.BluetoothGattService svc = gatt.getService(SVC_LYRICS);
+            BluetoothGattService svc = g.getService(SVC_LYRICS);
             if (svc == null) {
                 setState("error", "车机未提供 IcarLyrics 服务");
                 return;

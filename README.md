@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'c4ce577e-24fa-404e-a59a-a9d3840d9042'
-  PropagateID: 'c4ce577e-24fa-404e-a59a-a9d3840d9042'
-  ReservedCode1: '96805824-dea4-4ade-a790-8189478ca661'
-  ReservedCode2: '96805824-dea4-4ade-a790-8189478ca661'
+  ProduceID: '43d55785-1ba2-4328-99f3-bc4cf5ec09da'
+  PropagateID: '43d55785-1ba2-4328-99f3-bc4cf5ec09da'
+  ReservedCode1: '814f8786-f443-49fc-b05b-932464bfe637'
+  ReservedCode2: '814f8786-f443-49fc-b05b-932464bfe637'
 ---
 
 # Icar03
@@ -63,19 +63,19 @@ gradle assembleDebug   # Java 17+，AGP 8.13，minSdk/targetSdk 28（车机 Andr
 
 ### 手机端（已完成 v1.0）
 
-手机 App 读本机播放状态（MediaSessionManager，优先蓝牙会话）→ 三源降级取词（lrclib/网易云/QQ，内存缓存）→ 作为 GATT Client 连接车机推送歌词与进度。
+手机 App 读本机播放状态（MediaSessionManager，优先蓝牙会话）→ 三源降级取词（lrclib/网易云/QQ，内存缓存）→ 作为 GATT Client 连接车机推送歌词与进度。**支持首次手动选择车机设备并记住，之后默认自动连接、断线自动重连。**
 
 ```
 phone/src/main/java/com/icarme/lyrics/phone/
 ├── PlaybackService.java       总调度前台服务：监控→取词→推送循环
 ├── NotificationListener.java  通知使用权凭证 + MediaSession 轮询
 ├── LyricsFetcher.java         三源降级取词 + 内存缓存
-├── BleClient.java             GATT Client：扫描/连接/MTU/分片推送/自动重连
+├── BleClient.java             GATT Client：扫描/选择/记住设备/MTU/分片推送/自动重连
 ├── BlePacketizer.java         分片打包（frameId+seq+total 头）
-└── PhoneMainActivity.java     权限引导 + 服务开关
+└── PhoneMainActivity.java     权限引导 + 选择车机 + 服务开关
 ```
 
-**手机端使用**：装 APK → 授权（蓝牙/定位/通知使用权）→ 手机蓝牙先配对车机 → 启动推送服务 → 任意音乐 App 放歌。
+**手机端使用**：装 APK → 授权（蓝牙/定位/通知使用权）→ 主界面「选择车机」从列表选中（只需一次，以后默认自动连接）→ 启动推送服务 → 任意音乐 App 放歌。
 
 **手机安装（ADB）**：
 ```bash

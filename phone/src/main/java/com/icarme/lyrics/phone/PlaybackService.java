@@ -26,6 +26,23 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     private static final long PROGRESS_INTERVAL_MS = 800;
 
     public static volatile boolean running = false;
+    private static PlaybackService instance;
+
+    static PlaybackService instance() { return instance; }
+
+    /** 主界面选择设备入口：服务运行中直接生效，否则仅持久化等待服务启动 */
+    static void remoteSelectDevice(String address) {
+        PlaybackService svc = instance;
+        if (svc != null) {
+            svc.selectDevice(address);
+        } else {
+            android.content.Context ctx = IcarPhoneApp.get();
+            if (ctx != null) {
+                ctx.getSharedPreferences("icarlyrics_phone", MODE_PRIVATE)
+                        .edit().putString("target_device", address).apply();
+            }
+        }
+    }
 
     private final BleClient ble = new BleClient(this, this::onBleState);
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -44,15 +61,23 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         running = true;
         startForeground();
         NotificationListener.setCallback(this);
-        main.post(() -> ble.connect());
+        main.post(() -> {
+            if (ble.getSelectedAddressText() == null) {
+                updateNotification("请先在主界面选择车机");
+            } else {
+                ble.connect();
+            }
+        });
     }
 
     @Override
     public void onDestroy() {
         running = false;
+        instance = null;
         NotificationListener.setCallback(null);
         stopProgressTask();
         ble.disconnect();
@@ -149,6 +174,26 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             progressTask = null;
         }
     }
+
+    /* ---------------- 设备选择 ---------------- */
+
+    /** 供主界面调：列出可连接设备（已配对 + 扫描发现） */
+    void scanDevices(BleClient.DevicesCallback cb) {
+        ble.scanForDevices(cb);
+    }
+
+    /** 供主界面调：选择某个设备并连接（记住默认，后续默认直连） */
+    void selectDevice(String address) {
+        ble.connectTo(address);
+    }
+
+    /** 供主界面调：清除已选设备 */
+    void clearDevice() {
+        ble.clearSelectedDevice();
+        updateNotification("未选择车机");
+    }
+
+    String getSelectedDeviceName() { return ble.getSelectedName(); }
 
     private void onBleState(String state, String detail) {
         if ("connected".equals(state) && !curKey.isEmpty()) {
