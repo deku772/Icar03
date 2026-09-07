@@ -297,23 +297,31 @@ class BleClient {
 
     /* ---------------- 推送 ---------------- */
 
-    /** 推歌词 JSON（自动分片，逐片带响应写入） */
-    void pushLyrics(String json) {
-        if (!isConnected()) return;
+    /** 推歌词 JSON（自动分片，逐片带响应写入）。返回 false=未连接或打包失败 */
+    boolean pushLyrics(String json) {
+        if (!isConnected()) return false;
         int payload = Math.max(20, mtu - 3 - 4); /* 减 ATT 头 3B + 分片头 4B */
-        byte[][] pkts = packetizer.pack(json, payload);
+        byte[][] pkts;
+        try {
+            pkts = packetizer.pack(json, payload);
+        } catch (Exception e) {
+            return false;
+        }
+        if (pkts == null || pkts.length == 0) return false;
         main.post(() -> writePackets(pkts, 0));
+        return true;
     }
 
-    /** 推进度/指令 JSON（单包，无分片头） */
-    void pushJson(String json) {
-        if (!isConnected()) return;
+    /** 推进度/指令 JSON（单包，无分片头）。返回 false=未连接或超长 */
+    boolean pushJson(String json) {
+        if (!isConnected()) return false;
         byte[] data = json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         if (data.length > mtu - 3) {
             Log.w(TAG, "progress json too large: " + data.length);
-            return;
+            return false;
         }
         main.post(() -> writeRaw(chProgress, data));
+        return true;
     }
 
     private void writePackets(byte[][] pkts, int index) {
@@ -354,6 +362,7 @@ class BleClient {
 
     private void setState(String s, String detail) {
         state = s;
+        PlaybackService.mon.bleState = s + (detail == null || detail.isEmpty() ? "" : " · " + detail);
         Listener l = listener;
         if (l != null) l.onState(s, detail);
     }

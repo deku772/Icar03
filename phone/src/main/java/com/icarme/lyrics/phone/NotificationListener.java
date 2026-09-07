@@ -125,6 +125,8 @@ public class NotificationListener extends NotificationListenerService {
 
         if (!names.isEmpty()) {
             diag("会话: " + String.join(", ", names));
+        } else {
+            diag("无媒体会话（放歌后仍无会话则检查通知使用权）");
         }
 
         /* 优先级：正在播放 > 蓝牙栈 > 有元数据

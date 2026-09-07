@@ -79,6 +79,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             /* 通知通道/前台通知异常不应导致服务崩溃 */
             IcarPhoneApp.saveCrash(Thread.currentThread(), e);
         }
+        mon.bleState = "未连接";
         NotificationListener.setCallback(this);
         main.post(() -> {
             try {
@@ -101,6 +102,16 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         NotificationListener.setCallback(null);
         stopProgressTask();
         if (ble != null) ble.disconnect();
+        /* 重置监控快照，避免残留旧状态 */
+        mon.track = "";
+        mon.artist = "";
+        mon.diag = "";
+        mon.fetchState = "未取词";
+        mon.fetchSource = "";
+        mon.lrcPreview = "";
+        mon.pushCount = 0;
+        mon.progressCount = 0;
+        mon.bleState = "未连接";
         stopForeground(true);
         super.onDestroy();
     }
@@ -117,6 +128,9 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         }
         curKey = key;
         curDuration = durationMs;
+        mon.track = track;
+        mon.artist = artist == null ? "" : artist;
+        mon.lastActivity = System.currentTimeMillis();
         updateNotification("待推送: " + track);
         if (ble.isConnected()) {
             fetchAndPush(track, artist, album, durationMs);
@@ -134,6 +148,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     @Override
     public void onDiag(String line) {
         /* 媒体检测诊断：仅无曲目时更新通知，避免刷屏 */
+        mon.diag = line;
         if (curKey.isEmpty()) {
             updateNotification(line);
         }
@@ -141,18 +156,42 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     /* ---------------- 取词 + 推送 ---------------- */
 
+    /** 全局监控快照（主界面轮询显示）：媒体链路每一步的状态 */
+    static final class Monitor {
+        volatile String diag = "";          /* 媒体检测诊断 */
+        volatile String track = "";         /* 当前曲目（空=未检测到播放） */
+        volatile String artist = "";
+        volatile String fetchState = "未取词"; /* 取词中/已获取(lrc)/未找到/未取词 */
+        volatile String fetchSource = "";
+        volatile String lrcPreview = "";    /* 歌词前几行预览 */
+        volatile int pushCount = 0;         /* 成功推送歌词次数 */
+        volatile int progressCount = 0;     /* 进度包计数 */
+        volatile String bleState = "未连接"; /* BLE 状态 */
+        volatile long lastActivity = 0;     /* 最后活动时刻 */
+    }
+
+    static final Monitor mon = new Monitor();
+
     private void fetchAndPush(String track, String artist, String album, long durationMs) {
         if (fetchInFlight || ble == null) return;
         fetchInFlight = true;
+        mon.track = track;
+        mon.artist = artist == null ? "" : artist;
+        mon.fetchState = "取词中";
         updateNotification("取词中: " + track);
         main.post(() -> new Thread(() -> {
             LyricsFetcher.Result r = fetcher.fetch(track, artist,
                     (int) (durationMs / 1000));
             fetchInFlight = false;
             if (r == null) {
+                mon.fetchState = "未找到";
+                mon.lrcPreview = "";
                 updateNotification("未找到歌词: " + track);
                 return;
             }
+            mon.fetchState = "已获取";
+            mon.fetchSource = r.source;
+            mon.lrcPreview = previewOf(r.lrc);
             try {
                 JSONObject msg = new JSONObject();
                 msg.put("type", "lyrics");
@@ -164,12 +203,33 @@ public class PlaybackService extends Service implements NotificationListener.Cal
                 if (r.tlyric != null) msg.put("tlyric", r.tlyric);
                 msg.put("source", r.source);
                 msg.put("resetProgress", true);
-                ble.pushLyrics(msg.toString());
-                updateNotification("已推送: " + track + " (" + r.source + ")");
+                boolean pushed = ble.pushLyrics(msg.toString());
+                if (pushed) {
+                    mon.pushCount++;
+                    updateNotification("已推送: " + track + " (" + r.source + ")");
+                } else {
+                    updateNotification("BLE 未就绪，未推送: " + track);
+                }
             } catch (Exception e) {
                 Log.w(TAG, "push lyrics failed", e);
             }
         }).start());
+    }
+
+    /** LRC 取前 3 行正文（去掉时间标签）做预览 */
+    private static String previewOf(String lrc) {
+        if (lrc == null) return "";
+        String[] lines = lrc.split("\n");
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (String ln : lines) {
+            if (n >= 3) break;
+            String body = ln.replaceFirst("^\\s*(?:\\[\\d+:\\d+(?:\\.\\d+)?\\])+\\s*", "");
+            if (body.trim().isEmpty()) continue;
+            sb.append(body.trim()).append("\n");
+            n++;
+        }
+        return sb.toString().trim();
     }
 
     /* ---------------- 进度推送循环 ---------------- */
@@ -189,7 +249,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
                     msg.put("positionMs", lastPos);
                     msg.put("playing", lastPlaying);
                     if (curDuration > 0) msg.put("durationMs", curDuration);
-                    ble.pushJson(msg.toString());
+                    if (ble.pushJson(msg.toString())) mon.progressCount++;
                 } catch (Exception ignored) {}
                 main.postDelayed(this, PROGRESS_INTERVAL_MS);
             }

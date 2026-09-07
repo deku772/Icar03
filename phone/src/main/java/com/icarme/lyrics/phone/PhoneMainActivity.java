@@ -26,6 +26,7 @@ public class PhoneMainActivity extends Activity {
     private Button btnService;
     private Button btnDevice;
     private TextView tvStatus;
+    private TextView tvLrc;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     @Override
@@ -44,7 +45,17 @@ public class PhoneMainActivity extends Activity {
 
         tvStatus = new TextView(this);
         tvStatus.setPadding(0, pad, 0, 0);
+        tvStatus.setTextSize(13);
         root.addView(tvStatus);
+
+        /* 歌词预览区：验证取词环节 */
+        tvLrc = new TextView(this);
+        tvLrc.setPadding(pad, pad / 2, pad, pad / 2);
+        tvLrc.setTextSize(14);
+        tvLrc.setBackgroundColor(0x11000000);
+        root.addView(tvLrc, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         Button btnPerms = new Button(this);
         btnPerms.setText("1. 授权（蓝牙/定位/通知使用权）");
@@ -65,12 +76,10 @@ public class PhoneMainActivity extends Activity {
         help.setText("使用说明：\n\n"
                 + "1) 手机蓝牙连接车机（系统设置里配对）\n"
                 + "2) 授权（蓝牙/定位/通知使用权）\n"
-                + "3) 点「选择车机」，从列表里选中你的车机（只需一次，\n"
-                + "    以后默认自动连接）\n"
-                + "4) 启动推送服务\n"
-                + "5) 随便用任何音乐 App 放歌\n"
-                + "6) 车机端悬浮窗自动显示逐字歌词\n\n"
-                + "车机全程不联网，歌词由手机取好后经 BLE 推送。");
+                + "3) 点「选择车机」选中车机（只需一次）\n"
+                + "4) 启动推送服务 → 放歌 → 车机悬浮窗出词\n\n"
+                + "链路诊断看上方监控：媒体→取词→推送→BLE\n"
+                + "哪一步断了就查哪一步。");
         help.setTextSize(13);
         ScrollView sv = new ScrollView(this);
         sv.addView(help);
@@ -81,6 +90,15 @@ public class PhoneMainActivity extends Activity {
         root.addView(sv);
 
         setContentView(root);
+
+        /* 实时监控：每秒刷新链路状态 */
+        ui.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (isFinishing()) return;
+                refreshStatus();
+                ui.postDelayed(this, 1000);
+            }
+        }, 500);
     }
 
     @Override
@@ -109,12 +127,33 @@ public class PhoneMainActivity extends Activity {
         }
 
         String crash = IcarPhoneApp.readCrash();
+        PlaybackService.Monitor m = PlaybackService.mon;
         String nlState = nl ? "已授权"
                 : "未授权（放歌无反应时先点上方「1. 授权」）";
-        tvStatus.setText("通知使用权: " + nlState
-                + "\n推送服务: " + (PlaybackService.running ? "运行中" : "已停止")
-                + "\n媒体监控: " + (PlaybackService.running && nl ? "工作中" : "未工作")
-                + (crash == null ? "" : "\n[上次崩溃] " + firstLine(crash)));
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("▸ 通知使用权: ").append(nlState)
+                .append("\n▸ 推送服务: ").append(PlaybackService.running ? "运行中" : "已停止")
+                .append("\n▸ BLE: ").append(PlaybackService.running ? m.bleState : "未启动");
+
+        if (PlaybackService.running) {
+            sb.append("\n▸ 媒体检测: ").append(m.diag.isEmpty() ? "初始化中…" : m.diag);
+            if (!m.track.isEmpty()) {
+                sb.append("\n▸ 当前曲目: ").append(m.track)
+                        .append(m.artist.isEmpty() ? "" : " - " + m.artist);
+            }
+            sb.append("\n▸ 取词: ").append(m.fetchState)
+                    .append(m.fetchSource.isEmpty() ? "" : "（" + m.fetchSource + "）")
+                    .append("\n▸ 推送: 歌词 ").append(m.pushCount).append(" 次 · 进度包 ").append(m.progressCount).append(" 个");
+        }
+        if (crash != null) sb.append("\n▸ [上次崩溃] ").append(firstLine(crash));
+        tvStatus.setText(sb.toString());
+
+        /* 歌词预览：验证取词成功与否 */
+        String pv = m.lrcPreview;
+        tvLrc.setText(pv.isEmpty() ? "（歌词预览：放歌后此处显示取到的前几行）" : pv);
+        tvLrc.setTextColor(pv.isEmpty() ? 0xFF8A93A8 : 0xFF1B2333);
+
         btnService.setText(PlaybackService.running ? "停止推送服务" : "3. 启动推送服务");
         btnDevice.setText(devName == null ? "2. 选择车机" : "已选车机: " + devName);
     }
