@@ -64,7 +64,7 @@ public class OverlayService extends Service {
         if (svc != null) svc.dispatch(json);
     }
 
-    private void dispatch(final String json) {
+private void dispatch(final String json) {
         ui.post(() -> {
             if (web == null || !pageReady) return;
             try {
@@ -76,6 +76,9 @@ public class OverlayService extends Service {
                 } else if ("progress".equals(type)) {
                     js = "IcarJS.onProgress(" + JSONObject.quote(json) + ")";
                 } else if ("cmd".equals(type)) {
+                    js = "IcarJS.onCmd(" + JSONObject.quote(json) + ")";
+                } else if ("conn".equals(type)) {
+                    /* BLE 连接状态变化（BleService 转发） */
                     js = "IcarJS.onCmd(" + JSONObject.quote(json) + ")";
                 } else {
                     return;

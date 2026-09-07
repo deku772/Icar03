@@ -171,10 +171,24 @@ public class BleService extends Service {
         public void onConnectionStateChange(BluetoothDevice device, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "client connected: " + device.getAddress());
+                pushConn(true, device);
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.i(TAG, "client disconnected: " + device.getAddress());
                 reassembler.reset();
+                pushConn(false, device);
             }
+        }
+
+        private void pushConn(boolean on, BluetoothDevice device) {
+            try {
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("type", "conn");
+                o.put("connected", on);
+                String name = null;
+                try { name = device.getName(); } catch (SecurityException ignored) {}
+                o.put("device", name == null ? device.getAddress() : name);
+                OverlayService.push(o.toString());
+            } catch (Exception ignored) {}
         }
 
         @Override

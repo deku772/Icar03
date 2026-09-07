@@ -184,12 +184,9 @@ class BleClient {
         if (selectedAddress != null) {
             try {
                 BluetoothDevice d = adapter.getRemoteDevice(selectedAddress);
-                if (d.getType() == BluetoothDevice.DEVICE_TYPE_CLASSIC
-                        || d.getType() == BluetoothDevice.DEVICE_TYPE_UNKNOWN) {
-                    /* 经典蓝牙设备：不尝试 GATT，提示改为先配对或重选 */
-                    setState("error", "所选设备不是 BLE 设备，请重选车机");
-                    return;
-                }
+                /* 不做 DEVICE_TYPE 校验：车机为双模芯片（经典蓝牙+BLE 同 MAC），
+                 * 系统对未做过 GATT 连接的设备常缓存为 CLASSIC/UNKNOWN，
+                 * 实际可直接以 TRANSPORT_LE 发起 GATT 连接（connectDevice 内已指定） */
                 connectDevice(d);
                 return;
             } catch (IllegalArgumentException e) {

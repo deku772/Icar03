@@ -65,7 +65,9 @@ var S = {
   cur: -1,
   switchAt: 0,            // 当前行切换时刻（淡入动画）
   demo: false,
-  loop: true
+  loop: true,
+  connected: false,       // BLE 手机端是否已连接（conn 消息更新）
+  connDevice: ''          // 已连接的设备名/地址
 };
 
 var THEME = {
@@ -196,6 +198,13 @@ function handleProgress(msg){
 }
 
 function handleCmd(msg){
+  if (msg.type === 'conn'){
+    /* BLE 连接状态（车机原生转发） */
+    S.connected = !!msg.connected;
+    S.connDevice = msg.device || '';
+    syncPanel();
+    return;
+  }
   var a = msg.action;
   if (a === 'clear'){ S.lines = []; S.cur = -1; }
   else if (a === 'setMode' && (msg.value==='top'||msg.value==='wallpaper')) S.mode = msg.value;
@@ -379,7 +388,18 @@ function drawWallpaper(line, now, idx, alpha){
 
 function draw(){
   ctx.clearRect(0,0,W,H);
-  if (!S.lines.length) return;
+  if (!S.lines.length) {
+    /* 无歌词数据：显示等待提示（半透明小字），证明悬浮窗活着且链路在等数据 */
+    if (!S.demo){
+      var th = THEME[S.theme];
+      ctx.textAlign = 'center';
+      ctx.font = Math.round(clamp(H*0.03, 16, 30))+'px '+FONT;
+      ctx.fillStyle = S.theme==='dark' ? 'rgba(255,255,255,.45)' : 'rgba(27,35,51,.45)';
+      var msg = S.connected ? '等待歌词…（手机已连接，放歌即显示）' : '等待手机连接…';
+      ctx.fillText(msg, W/2, H*0.055 + clamp(H*0.03, 16, 30));
+    }
+    return;
+  }
   var t = nowMs();
   var idx = findLine(t);
   if (idx !== S.cur){ S.cur = idx; S.switchAt = Date.now(); }

@@ -179,6 +179,9 @@ public class PhoneMainActivity extends Activity {
         } else {
             startForegroundService(new Intent(this, PlaybackService.class));
         }
-        refreshStatus();
+        /* 服务启动/停止是异步的，立即读状态可能未翻转，延迟轮询到状态变化为止 */
+        ui.postDelayed(this::refreshStatus, 150);
+        ui.postDelayed(this::refreshStatus, 500);
+        ui.postDelayed(this::refreshStatus, 1200);
     }
 }
