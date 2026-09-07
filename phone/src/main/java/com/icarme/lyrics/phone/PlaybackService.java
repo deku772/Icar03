@@ -44,7 +44,9 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         }
     }
 
-    private final BleClient ble = new BleClient(this, this::onBleState);
+    /* 注意：ble 必须在 onCreate() 中创建（Service 构造函数中 Context 尚未 attach，
+     * getSharedPreferences 会抛 NPE），因此不能在这里用 new BleClient(this, ...) 初始化 */
+    private BleClient ble;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final LyricsFetcher fetcher = new LyricsFetcher();
 
@@ -63,6 +65,14 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         super.onCreate();
         instance = this;
         running = true;
+        try {
+            /* 必须在 onCreate() 中创建：此时 Context 已 attach，可安全访问 SharedPreferences */
+            ble = new BleClient(this, this::onBleState);
+        } catch (Exception e) {
+            IcarPhoneApp.saveCrash(Thread.currentThread(), e);
+            stopSelf(); /* 核心组件初始化失败，直接停止，避免后续 NPE */
+            return;
+        }
         try {
             startForeground();
         } catch (Exception e) {
@@ -90,7 +100,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         instance = null;
         NotificationListener.setCallback(null);
         stopProgressTask();
-        ble.disconnect();
+        if (ble != null) ble.disconnect();
         stopForeground(true);
         super.onDestroy();
     }
@@ -99,6 +109,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     @Override
     public void onTrackChanged(String track, String artist, String album, long durationMs) {
+        if (ble == null) return;
         String key = track + "|" + (artist == null ? "" : artist);
         if (key.equals(curKey)) {
             if (durationMs > 0) curDuration = durationMs;
@@ -123,7 +134,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     /* ---------------- 取词 + 推送 ---------------- */
 
     private void fetchAndPush(String track, String artist, String album, long durationMs) {
-        if (fetchInFlight) return;
+        if (fetchInFlight || ble == null) return;
         fetchInFlight = true;
         updateNotification("取词中: " + track);
         main.post(() -> new Thread(() -> {
@@ -156,7 +167,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     /* ---------------- 进度推送循环 ---------------- */
 
     private synchronized void startProgressTask() {
-        if (progressTask != null) return; /* 已在跑 */
+        if (progressTask != null || ble == null) return; /* 已在跑 */
         progressTask = new Runnable() {
             @Override
             public void run() {
