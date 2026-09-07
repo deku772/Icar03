@@ -66,7 +66,6 @@ var S = {
   switchAt: 0,            // 当前行切换时刻（淡入动画）
   demo: false,
   loop: true,
-  S.cur = -1,
   connected: false,       // BLE 手机端是否已连接（conn 消息更新）
   connDevice: '',         // 已连接的设备名/地址
   advState: '',           // 车机 BLE 广播状态（conn 消息更新）
@@ -224,7 +223,7 @@ function handleCmd(msg){
   }
   var a = msg.action;
   if (a === 'clear'){ S.lines = []; S.cur = -1; }
-  else if (a === 'setMode' && (msg.value==='top'||msg.value==='wallpaper')) S.mode = msg.value;
+  else if (a === 'setMode' && (msg.value==='top'||msg.value==='wallpaper')){ S.mode = msg.value; invalidateLayout(); }
   else if (a === 'setTheme' && (msg.value==='dark'||msg.value==='light')) S.theme = msg.value;
   else if (a === 'ping'){ notify({ event:'pong', data:{ t:Date.now() } }); }
   syncPanel();
@@ -255,6 +254,11 @@ function resize(){
   cv.height = Math.max(1, Math.round(H*dpr));
   cv.style.width = W+'px'; cv.style.height = H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
+  invalidateLayout();
+}
+
+/** 清空行布局缓存（模式/尺寸变化时调用） */
+function invalidateLayout(){
   for (var i=0;i<S.lines.length;i++) S.lines[i]._lay = null;
 }
 
