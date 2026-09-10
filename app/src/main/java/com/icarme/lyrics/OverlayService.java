@@ -57,8 +57,69 @@ public class OverlayService extends Service {
     /* 歌词时间偏移（用户可调，持久化）：正值=提前，负值=延后，作用于最终 positionMs */
     private static final String PREFS = "icarlyrics";
     private static final String KEY_OFFSET_MS = "lyrics_offset_ms";
-    private static final int OFFSET_LIMIT_MS = 5000;
+    private static final int OFFSET_LIMIT_MS = 15000;   /* ±15s，覆盖 iCAR 缓冲延迟 */
     private static final int OFFSET_STEP_MS = 250;
+
+    /* 自动启动开关：默认开；手动停止置 false，手动启动/ADB START 置 true。开机/升级只在 true 时拉起 */
+    private static final String KEY_AUTO_START = "auto_start";
+    private static final String KEY_ALIGN = "lyrics_align"; /* left|center|right */
+
+    static boolean isAutoStart() {
+        return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_AUTO_START, true);
+    }
+
+    static void setAutoStart(boolean on) {
+        IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_AUTO_START, on).apply();
+    }
+
+    static String getAlign() {
+        return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_ALIGN, "center");
+    }
+
+    static void setAlign(String align) {
+        if (!"left".equals(align) && !"center".equals(align) && !"right".equals(align)) return;
+        IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_ALIGN, align).apply();
+        pushAlign(align);
+    }
+
+    static void pushAlign(String align) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("type", "cmd");
+            o.put("action", "setAlign");
+            o.put("value", align);
+            push(o.toString());
+        } catch (Exception ignored) {}
+    }
+
+    private static final String KEY_COLOR = "lyrics_color"; /* white|blue|green|amber|pink */
+
+    static String getColor() {
+        return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_COLOR, "white");
+    }
+
+    static void setColor(String color) {
+        if (!"white".equals(color) && !"blue".equals(color) && !"green".equals(color)
+                && !"amber".equals(color) && !"pink".equals(color)) return;
+        IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_COLOR, color).apply();
+        pushColor(color);
+    }
+
+    static void pushColor(String color) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("type", "cmd");
+            o.put("action", "setColor");
+            o.put("value", color);
+            push(o.toString());
+        } catch (Exception ignored) {}
+    }
 
     /** 当前偏移（ms），主界面调节后持久化 */
     static int getOffsetMs() {
@@ -66,7 +127,7 @@ public class OverlayService extends Service {
                 .getInt(KEY_OFFSET_MS, 0);
     }
 
-    /** 调整偏移并持久化（±5s 夹取），同时立即下发给渲染器实时重定位 */
+    /** 调整偏移并持久化（±15s 夹取），同时立即下发给渲染器实时重定位 */
     static int adjustOffsetMs(int deltaMs) {
         int v = Math.max(-OFFSET_LIMIT_MS, Math.min(OFFSET_LIMIT_MS, getOffsetMs() + deltaMs));
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -140,8 +201,9 @@ public class OverlayService extends Service {
         }
     }
 
-    /** 读车机蓝牙栈会话进度；只信 PLAYING 快照（PAUSED 残留会话的固定 position
-     *  会把歌词钉死不滚动）。快照 3.5s 过期自动降级 BLE 进度。 */
+    /** 读车机蓝牙栈会话进度；只信 PLAYING 快照。
+     *  懒栈陷阱：iCAR 高通栈 state=PLAYING 但 position 长期不刷新（僵尸快照）——
+     *  停滞时保留旧快照让插值继续走；停滞超 10s 判定僵尸，放弃本地时间轴走 BLE。 */
     private void pollLocalTimeline() {
         try {
             MediaSessionManager msm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
@@ -153,8 +215,16 @@ public class OverlayService extends Service {
                 PlaybackState ps = c.getPlaybackState();
                 if (ps == null) continue;
                 if (ps.getState() != PlaybackState.STATE_PLAYING) continue;
-                localPosMs = Math.max(0, ps.getPosition());
-                localSyncAt = System.currentTimeMillis();
+                long pos = Math.max(0, ps.getPosition());
+                long now = System.currentTimeMillis();
+                if (localReady && pos == localPosMs) {
+                    /* position 停滞：不刷新快照（插值继续由旧快照推进），
+                     * 超过 10s 仍未刷新 → 僵尸会话，放弃本地时间轴 */
+                    if (now - localSyncAt > 10000) localReady = false;
+                    return;
+                }
+                localPosMs = pos;
+                localSyncAt = now;
                 localPlaying = true;
                 localReady = true;
                 return;   /* 取第一个蓝牙栈会话即可 */
@@ -173,7 +243,7 @@ public class OverlayService extends Service {
         return localPlaying ? localPosMs + dt : localPosMs;
     }
 
-private void dispatch(final String json) {
+    private void dispatch(final String json) {
         ui.post(() -> {
             if (web == null || !pageReady) return;
             try {
@@ -182,11 +252,14 @@ private void dispatch(final String json) {
                 String payload = json;
                 if ("progress".equals(type)) {
                     /* 进度包：本地蓝牙栈时间轴可信时覆盖 positionMs/playing，
-                     * 消除 A2DP 传输+缓冲延迟。用户偏移不在 Java 侧叠加——
-                     * 由渲染层 setOffset 实时应用（暂停/调节立即生效）。
-                     * 换歌后 4s 内且本地快照早于换歌时刻 → 不覆盖（旧曲快照） */
+                     * 消除 A2DP 传输+缓冲延迟。两层防御：
+                     *  1) 换歌后 4s 内且快照早于换歌时刻 → 不覆盖（旧曲快照）
+                     *  2) 本地值与 BLE 进度偏差 > 2.5s → 本地失真（僵尸插值等），降级 BLE
+                     * 用户偏移由渲染层 setOffset 实时应用（暂停/调节立即生效）。 */
                     long now = System.currentTimeMillis();
                     long ln = (now - lyricsAt > 4000 || localSyncAt > lyricsAt) ? localNow() : -1;
+                    long blePos = obj.optLong("positionMs", 0);
+                    if (ln >= 0 && Math.abs(ln - blePos) > 2500) ln = -1;
                     if (ln >= 0) {
                         obj.put("positionMs", ln);
                         obj.put("playing", localPlaying);
@@ -252,7 +325,9 @@ private void dispatch(final String json) {
             @Override public void onProgressChanged(WebView view, int p) {
                 if (p >= 100 && !pageReady) {
                     pageReady = true;
-                    pushOffset(getOffsetMs());   /* 页面就绪：同步用户偏移 */
+                    pushOffset(getOffsetMs());
+                    pushAlign(getAlign());
+                    pushColor(getColor());
                 }
             }
         });

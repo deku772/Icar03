@@ -44,12 +44,44 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     private static final String TAG = "IcarLyrics.Phone";
     private static final long PROGRESS_INTERVAL_MS = 800;
-    private static final long MEDIA_POLL_INTERVAL_MS = 2000;
+    private static final long MEDIA_POLL_INTERVAL_MS = 1000;   /* 1s：自然切歌更快被发现 */
 
     public static volatile boolean running = false;
     private static PlaybackService instance;
 
     static PlaybackService instance() { return instance; }
+
+    /* ---------------- 偏移 / 自启开关（持久化） ---------------- */
+
+    private static final String PREFS = "icarlyrics";
+    private static final String KEY_OFFSET_MS = "lyrics_offset_ms";
+    private static final String KEY_AUTO_START = "auto_start";
+    static final int OFFSET_LIMIT_MS = 15000;   /* 与车机一致，±15s */
+    static final int OFFSET_STEP_MS = 250;
+
+    /** 歌词偏移（ms）：正值=提前，负值=延后。仅作用于手机主界面滚动预览，不影响 BLE 进度 */
+    static int getOffsetMs() {
+        return IcarPhoneApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getInt(KEY_OFFSET_MS, 0);
+    }
+
+    static int adjustOffsetMs(int deltaMs) {
+        int v = Math.max(-OFFSET_LIMIT_MS, Math.min(OFFSET_LIMIT_MS, getOffsetMs() + deltaMs));
+        IcarPhoneApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putInt(KEY_OFFSET_MS, v).apply();
+        return v;
+    }
+
+    /** 开机/覆盖安装是否自动拉起；手动停止置 false，手动启动置 true */
+    static boolean isAutoStart() {
+        return IcarPhoneApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_AUTO_START, true);
+    }
+
+    static void setAutoStart(boolean on) {
+        IcarPhoneApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_AUTO_START, on).apply();
+    }
 
     /** 读取本机蓝牙 MAC（车机按此直连手机）。 */
     static String getOwnMac() {
@@ -93,7 +125,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     private long curDuration = 0;
     private long lastPos = 0;
     private boolean lastPlaying = false;
-    private boolean fetchInFlight = false;
+    private int fetchSeq = 0;          /* 取词代号：新曲开始后丢弃过期结果 */
     private Runnable progressTask;
 
     @Override
@@ -147,6 +179,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         mon.fetchState = "未取词";
         mon.fetchSource = "";
         mon.lrcPreview = "";
+        mon.lrcFull = "";
         mon.pushCount = 0;
         mon.progressCount = 0;
         mon.writeAck = 0;
@@ -221,9 +254,17 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             c.registerCallback(controllerCb, main);
         }
         /* 每轮都补发一次，防止回调丢失（回调 + 轮询双保险） */
-        emitTrack(c.getMetadata());
         PlaybackState ps = c.getPlaybackState();
-        if (ps != null) emitProgress(ps);
+        if (ps != null) {
+            long pos = ps.getPosition();
+            boolean playing = ps.getState() == PlaybackState.STATE_PLAYING;
+            /* 自然切歌：进度从高位回落到起点 → 立刻清车机旧词，再走元数据换歌 */
+            if (playing && lastPlaying && lastPos > 15000 && pos < 3000) {
+                pushClearCmd();
+            }
+            emitProgress(ps);
+        }
+        emitTrack(c.getMetadata());
     }
 
     /** 会话挑选：正在播放 > 蓝牙栈 > 有元数据（显式组件名，不依赖监听服务绑定） */
@@ -305,6 +346,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     public void onProgress(long positionMs, boolean playing) {
         lastPos = positionMs;
         lastPlaying = playing;
+        mon.positionMs = positionMs;
+        mon.playingNow = playing;
         startProgressTask();
     }
 
@@ -355,6 +398,9 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         volatile String fetchState = "未取词"; /* 取词中/已获取(lrc)/未找到/未取词 */
         volatile String fetchSource = "";
         volatile String lrcPreview = "";    /* 歌词前几行预览 */
+        volatile String lrcFull = "";       /* 完整 LRC（主界面滚动歌词渲染用） */
+        volatile long positionMs = 0;       /* 当前播放位置（主界面歌词跟随） */
+        volatile boolean playingNow = false;
         volatile int pushCount = 0;         /* 成功推送歌词次数 */
         volatile int progressCount = 0;     /* 进度包计数 */
         volatile int writeAck = 0;          /* BLE 写入 ACK 数 */
@@ -366,30 +412,38 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     static final Monitor mon = new Monitor();
 
     private void fetchAndPush(String track, String artist, String album, long durationMs) {
-        if (fetchInFlight || ble == null) return;
-        fetchInFlight = true;
-        mon.track = track;
-        mon.artist = artist == null ? "" : artist;
+        if (ble == null) return;
+        final int seq = ++fetchSeq;
+        final String t = track;
+        final String art = artist == null ? "" : artist;
+        mon.track = t;
+        mon.artist = art;
         mon.fetchState = "取词中";
-        updateNotification("取词中: " + track);
+        mon.lrcPreview = "";
+        mon.lrcFull = "";   /* 手机预览先清 */
+        /* 立刻清车机旧词，避免自然切歌后继续滚上一首 */
+        pushClearCmd();
+        updateNotification("取词中: " + t);
         main.post(() -> new Thread(() -> {
-            LyricsFetcher.Result r = fetcher.fetch(track, artist,
+            LyricsFetcher.Result r = fetcher.fetch(t, art,
                     (int) (durationMs / 1000));
-            fetchInFlight = false;
+            if (seq != fetchSeq) return;   /* 已切到更新的曲目，丢弃 */
             if (r == null) {
                 mon.fetchState = "未找到";
                 mon.lrcPreview = "";
-                updateNotification("未找到歌词: " + track);
+                mon.lrcFull = "";
+                updateNotification("未找到歌词: " + t);
                 return;
             }
             mon.fetchState = "已获取";
             mon.fetchSource = r.source;
             mon.lrcPreview = previewOf(r.lrc);
+            mon.lrcFull = r.lrc == null ? "" : r.lrc;
             try {
                 JSONObject msg = new JSONObject();
                 msg.put("type", "lyrics");
-                msg.put("track", track);
-                msg.put("artist", TextUtils.isEmpty(artist) ? "" : artist);
+                msg.put("track", t);
+                msg.put("artist", art);
                 msg.put("album", TextUtils.isEmpty(album) ? "" : album);
                 msg.put("durationMs", curDuration);
                 msg.put("lrc", r.lrc);
@@ -397,16 +451,28 @@ public class PlaybackService extends Service implements NotificationListener.Cal
                 msg.put("source", r.source);
                 msg.put("resetProgress", true);
                 boolean pushed = ble.pushLyrics(msg.toString());
+                if (seq != fetchSeq) return; /* 推送前又换了歌 */
                 if (pushed) {
                     mon.pushCount++;
-                    updateNotification("已推送: " + track + " (" + r.source + ")");
+                    updateNotification("已推送: " + t + " (" + r.source + ")");
                 } else {
-                    updateNotification("BLE 未就绪，未推送: " + track);
+                    updateNotification("BLE 未就绪，未推送: " + t);
                 }
             } catch (Exception e) {
                 Log.w(TAG, "push lyrics failed", e);
             }
         }).start());
+    }
+
+    /** 清空车机悬浮歌词（render 层 handleCmd action=clear） */
+    private void pushClearCmd() {
+        if (ble == null || !ble.isConnected()) return;
+        try {
+            JSONObject msg = new JSONObject();
+            msg.put("type", "cmd");
+            msg.put("action", "clear");
+            ble.pushJson(msg.toString());
+        } catch (Exception ignored) {}
     }
 
     /** LRC 取前 3 行正文（去掉时间标签与元数据行）做预览 */

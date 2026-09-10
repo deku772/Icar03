@@ -11,8 +11,8 @@ android {
         applicationId 'com.icarme.lyrics'
         minSdk 28          /* iCAR 03 车机 = Android 9 */
         targetSdk 28       /* 与原厂系统对齐，避免新版本行为差异 */
-        versionCode 4
-        versionName '2.2'
+        versionCode 5
+        versionName '2.3'
     }
 
     buildTypes {
@@ -30,4 +30,18 @@ android {
 
 /* 零第三方依赖：全部使用 Android SDK 内置 API */
 dependencies {
+}
+
+/* 车机端打包时内嵌手机端 APK，供热点扫码下载（离线内网分发） */
+android.applicationVariants.all { variant ->
+    if (variant.buildType.name != 'debug' && variant.buildType.name != 'release') return
+    def embed = tasks.register("embedPhoneApk${variant.name.capitalize()}", Copy) {
+        dependsOn ":phone:assemble${variant.name.capitalize()}"
+        from("${rootDir}/phone/build/outputs/apk/${variant.name}") {
+            include "phone-${variant.name}.apk"
+            rename { "icarlyrics-phone.apk" }
+        }
+        into "${projectDir}/src/main/assets"
+    }
+    variant.preBuildProvider.get().dependsOn embed
 }

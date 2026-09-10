@@ -21,12 +21,14 @@ public class AdbReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String a = intent.getAction();
         if (ACTION_START.equals(a)) {
+            PlaybackService.setAutoStart(true);
             try {
                 context.startForegroundService(new Intent(context, PlaybackService.class));
             } catch (Exception e) {
                 IcarPhoneApp.saveCrash(Thread.currentThread(), e);
             }
         } else if (ACTION_STOP.equals(a)) {
+            PlaybackService.setAutoStart(false);
             context.stopService(new Intent(context, PlaybackService.class));
         }
     }

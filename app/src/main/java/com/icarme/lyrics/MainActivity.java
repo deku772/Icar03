@@ -21,6 +21,8 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -54,14 +56,17 @@ public class MainActivity extends Activity {
     private Button btnService;
     private Button btnScan;
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private final ApkHttpServer apkServer = new ApkHttpServer();
+    private AlertDialog installDialog;
 
     /* 扫描发现结果 */
     private final List<ScanResult> found = new ArrayList<>();
     private boolean scanning = false;
 
     /* 状态行控件（refreshStatus 动态更新点色与值） */
-    private static final int ROW_COUNT = 6;
-    private static final int ROW_PERM = 0, ROW_OVERLAY = 1, ROW_BLE = 2, ROW_CONN = 3, ROW_PHONE = 4, ROW_OFFSET = 5;
+    private static final int ROW_COUNT = 8;
+    private static final int ROW_PERM = 0, ROW_OVERLAY = 1, ROW_BLE = 2, ROW_CONN = 3,
+            ROW_PHONE = 4, ROW_OFFSET = 5, ROW_ALIGN = 6, ROW_COLOR = 7;
     private final View[] rowDots = new View[ROW_COUNT];
     private final TextView[] rowValues = new TextView[ROW_COUNT];
     private TextView tvScanHint;
@@ -163,7 +168,7 @@ public class MainActivity extends Activity {
         lp.topMargin = dp(20);
         card.setLayoutParams(lp);
 
-        String[] labels = {"悬浮窗权限", "悬浮服务", "BLE 服务", "连接状态", "手机地址", "歌词偏移"};
+        String[] labels = {"悬浮窗权限", "悬浮服务", "BLE 服务", "连接状态", "手机地址", "歌词偏移", "对齐", "颜色"};
         for (int i = 0; i < ROW_COUNT; i++) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -199,7 +204,7 @@ public class MainActivity extends Activity {
             rowValues[i] = value;
             card.addView(row);
 
-            /* 歌词偏移行：内嵌调节按钮（词晚于声→提前，词早于声→延后；250ms 步进，±5s） */
+            /* 歌词偏移行：内嵌调节按钮（词晚于声→提前，词早于声→延后；250ms 步进，±15s） */
             if (i == ROW_OFFSET) {
                 LinearLayout ctl = new LinearLayout(this);
                 ctl.setOrientation(LinearLayout.HORIZONTAL);
@@ -225,6 +230,55 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 ctl.setLayoutParams(clp);
+                row.addView(ctl);
+            }
+            /* 对齐行：居左 / 居中 / 居右 */
+            if (i == ROW_ALIGN) {
+                LinearLayout ctl = new LinearLayout(this);
+                ctl.setOrientation(LinearLayout.HORIZONTAL);
+                ctl.setGravity(Gravity.CENTER_VERTICAL);
+                String[] als = {"left", "center", "right"};
+                String[] names = {"居左", "居中", "居右"};
+                for (int k = 0; k < 3; k++) {
+                    final String al = als[k];
+                    Button b = new Button(new android.view.ContextThemeWrapper(this,
+                            android.R.style.Widget_Material_Button_Borderless), null, 0);
+                    b.setText(names[k]);
+                    styleMiniButton(b);
+                    b.setOnClickListener(v -> {
+                        OverlayService.setAlign(al);
+                        refreshStatus();
+                    });
+                    ctl.addView(b);
+                }
+                row.addView(ctl);
+            }
+            /* 颜色行：白 / 蓝 / 绿 / 琥珀 / 粉 */
+            if (i == ROW_COLOR) {
+                LinearLayout ctl = new LinearLayout(this);
+                ctl.setOrientation(LinearLayout.HORIZONTAL);
+                ctl.setGravity(Gravity.CENTER_VERTICAL);
+                String[] cols = {"white", "blue", "green", "amber", "pink"};
+                String[] names = {"白", "蓝", "绿", "琥珀", "粉"};
+                for (int k = 0; k < cols.length; k++) {
+                    final String col = cols[k];
+                    Button b = new Button(new android.view.ContextThemeWrapper(this,
+                            android.R.style.Widget_Material_Button_Borderless), null, 0);
+                    b.setText(names[k]);
+                    b.setBackgroundResource(R.drawable.btn_ghost);
+                    b.setTextColor(C_PRIMARY);
+                    b.setTextSize(12);
+                    b.setAllCaps(false);
+                    b.setStateListAnimator(null);
+                    LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(48), dp(36));
+                    blp.leftMargin = dp(4);
+                    b.setLayoutParams(blp);
+                    b.setOnClickListener(v -> {
+                        OverlayService.setColor(col);
+                        refreshStatus();
+                    });
+                    ctl.addView(b);
+                }
                 row.addView(ctl);
             }
         }
@@ -275,6 +329,13 @@ public class MainActivity extends Activity {
         lp.topMargin = dp(12);
         btnService.setLayoutParams(lp);
         box.addView(btnService);
+
+        Button btnInstall = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnInstall.setText("扫码安装手机端");
+        styleButton(btnInstall, R.drawable.btn_ghost, C_PRIMARY, false);
+        btnInstall.setOnClickListener(v -> showInstallQr());
+        box.addView(btnInstall);
         return box;
     }
 
@@ -292,25 +353,67 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static final String PREFS = "icarlyrics";
+    private static final String KEY_SHOW_HELP = "show_adb_help";
+
     private View buildHelpCard() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundResource(R.drawable.card_bg);
         box.setPadding(dp(20), dp(16), dp(20), dp(14));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(20);
         box.setLayoutParams(lp);
+
+        boolean showHelp = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SHOW_HELP, true);
+
+        Button btnHelp = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnHelp.setText(showHelp ? "收起 ADB 授权帮助" : "ADB 授权帮助");
+        btnHelp.setBackgroundResource(R.drawable.btn_ghost);
+        btnHelp.setTextColor(C_PRIMARY);
+        btnHelp.setTextSize(14);
+        btnHelp.setAllCaps(false);
+        btnHelp.setStateListAnimator(null);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42));
+        btnHelp.setLayoutParams(hlp);
+        box.addView(btnHelp);
+
+        final LinearLayout helpWrap = new LinearLayout(this);
+        helpWrap.setOrientation(LinearLayout.VERTICAL);
+        helpWrap.setVisibility(showHelp ? View.VISIBLE : View.GONE);
 
         ScrollView sv = new ScrollView(this);
         TextView help = new TextView(this);
         help.setText(AdbHelper.helpText());
         help.setTextColor(C_TEXT_DIM);
-        help.setTextSize(13);
+        help.setTextSize(12);
         help.setLineSpacing(dp(3), 1f);
         sv.addView(help);
-        box.addView(sv, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        helpWrap.addView(sv, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(160)));
+
+        final CheckBox cbHide = new CheckBox(this);
+        cbHide.setText("不再显示（弄好授权后勾选）");
+        cbHide.setTextColor(C_TEXT_DIM);
+        cbHide.setTextSize(13);
+        cbHide.setChecked(!showHelp);
+        helpWrap.addView(cbHide);
+        box.addView(helpWrap);
+
+        btnHelp.setOnClickListener(v -> {
+            boolean vis = helpWrap.getVisibility() != View.VISIBLE;
+            helpWrap.setVisibility(vis ? View.VISIBLE : View.GONE);
+            btnHelp.setText(vis ? "收起 ADB 授权帮助" : "ADB 授权帮助");
+            if (!vis && cbHide.isChecked()) {
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SHOW_HELP, false).apply();
+            }
+        });
+        cbHide.setOnCheckedChangeListener((bv, checked) -> {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SHOW_HELP, !checked).apply();
+        });
 
         TextView repo = new TextView(this);
         repo.setText("项目地址：github.com/deku772/Icar03");
@@ -372,6 +475,15 @@ public class MainActivity extends Activity {
                 : String.format(java.util.Locale.US, "%s%.2fs · %s",
                         off > 0 ? "提前 " : "延后 ", Math.abs(off) / 1000f,
                         off > 0 ? "词晚于声" : "词早于声"));
+
+        String al = OverlayService.getAlign();
+        setDot(ROW_ALIGN, C_PRIMARY);
+        rowValues[ROW_ALIGN].setText("left".equals(al) ? "居左" : "right".equals(al) ? "居右" : "居中");
+
+        String col = OverlayService.getColor();
+        setDot(ROW_COLOR, C_PRIMARY);
+        rowValues[ROW_COLOR].setText("white".equals(col) ? "白" : "blue".equals(col) ? "蓝"
+                : "green".equals(col) ? "绿" : "amber".equals(col) ? "琥珀" : "粉");
 
         btnService.setText(svc ? "停止歌词悬浮" : "启动歌词悬浮");
     }
@@ -492,6 +604,7 @@ public class MainActivity extends Activity {
 
     private void toggleService() {
         if (OverlayService.running) {
+            OverlayService.setAutoStart(false);
             stopService(new Intent(this, OverlayService.class));
             stopService(new Intent(this, BleService.class));
         } else {
@@ -499,11 +612,154 @@ public class MainActivity extends Activity {
                 showHint("请先用 ADB 命令授予悬浮窗权限（见下方帮助）");
                 return;
             }
+            OverlayService.setAutoStart(true);
             startService(new Intent(this, OverlayService.class));
             startService(new Intent(this, BleService.class));
         }
         ui.postDelayed(this::refreshStatus, 300);
         ui.postDelayed(this::refreshStatus, 1500);
+    }
+
+    /* ---------------- 扫码安装手机端（车机内网分发） ---------------- */
+
+    private byte[] loadPhoneApk() {
+        try (java.io.InputStream in = getAssets().open("icarlyrics-phone.apk");
+             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+            return bos.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void showInstallQr() {
+        byte[] apk = loadPhoneApk();
+        if (apk == null) {
+            showHint("未内嵌手机端 APK，请用完整包构建（会自动打包 phone-debug.apk）");
+            return;
+        }
+        if (!apkServer.start(apk)) {
+            showHint("本地下载服务启动失败（端口 " + ApkHttpServer.PORT + " 被占用？）");
+            return;
+        }
+        String ip = ApkHttpServer.findLanIp();
+        if (ip == null) {
+            showHint("未找到内网 IP，请确认车机热点/Wi-Fi 已开启");
+            apkServer.stop();
+            return;
+        }
+        String url = ApkHttpServer.downloadUrl(ip);
+
+        /* 尝试自动读取车机 SoftAP（腾讯云手车互联每次启动生成的新 SSID/密码） */
+        HotspotInfo ap = HotspotInfo.read(this);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(16), dp(8), dp(16), dp(4));
+
+        TextView tip = new TextView(this);
+        tip.setText(ap.valid()
+                ? ("热点：" + ap.ssid + (ap.apEnabled ? "（已开启）" : "")
+                + "\n手机扫码：先连热点，再打开下载页安装")
+                : "未能自动读取热点，请手填 SSID/密码后生成合并码");
+        tip.setTextColor(C_TEXT_DIM);
+        tip.setTextSize(13);
+        tip.setPadding(0, 0, 0, dp(6));
+        root.addView(tip);
+
+        /* 左：说明+输入；右：二维码（靠右，避免挡住下方授权说明） */
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.TOP);
+
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0, dp(230), 1.2f);
+        left.setLayoutParams(llp);
+
+        final EditText etSsid = new EditText(this);
+        etSsid.setHint("SSID");
+        etSsid.setTextColor(C_TEXT);
+        etSsid.setHintTextColor(C_TEXT_DIM);
+        etSsid.setTextSize(13);
+        etSsid.setText(ap.valid() ? ap.ssid : "");
+        left.addView(etSsid);
+        final EditText etPass = new EditText(this);
+        etPass.setHint("密码");
+        etPass.setTextColor(C_TEXT);
+        etPass.setHintTextColor(C_TEXT_DIM);
+        etPass.setTextSize(13);
+        etPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        if (ap.password != null) etPass.setText(ap.password);
+        left.addView(etPass);
+
+        TextView urlTv = new TextView(this);
+        urlTv.setText(url);
+        urlTv.setTextColor(C_PRIMARY);
+        urlTv.setTextSize(11);
+        urlTv.setPadding(0, dp(4), 0, 0);
+        left.addView(urlTv);
+
+        Button btnWifi = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnWifi.setText("刷新二维码");
+        btnWifi.setBackgroundResource(R.drawable.btn_ghost);
+        btnWifi.setTextColor(C_PRIMARY);
+        btnWifi.setTextSize(12);
+        btnWifi.setAllCaps(false);
+        btnWifi.setStateListAnimator(null);
+        left.addView(btnWifi);
+        row.addView(left);
+
+        final ImageView qrView = new ImageView(this);
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(dp(180), dp(180));
+        qlp.leftMargin = dp(8);
+        qrView.setLayoutParams(qlp);
+        row.addView(qrView);
+        root.addView(row);
+
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            String ssid = etSsid.getText().toString().trim();
+            String pass = etPass.getText().toString();
+            String payload = url;
+            if (!ssid.isEmpty()) {
+                String wifi = pass.isEmpty()
+                        ? "WIFI:T:nopass;S:" + escapeWifi(ssid) + ";;"
+                        : "WIFI:T:WPA;S:" + escapeWifi(ssid) + ";P:" + escapeWifi(pass) + ";;";
+                payload = wifi + "\n" + url;
+            }
+            try {
+                qrView.setImageBitmap(QrEncoder.encode(payload, 4));
+            } catch (Exception e) {
+                try { qrView.setImageBitmap(QrEncoder.encode(url, 4)); }
+                catch (Exception ignored) {}
+            }
+        };
+        render[0].run();
+        btnWifi.setOnClickListener(v -> render[0].run());
+
+        installDialog = new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
+                android.R.style.Theme_Material_Dialog))
+                .setTitle("扫码安装手机端")
+                .setView(root)
+                .setNegativeButton("关闭", null)
+                .setOnDismissListener(d -> ui.postDelayed(apkServer::stop, 3 * 60 * 1000))
+                .show();
+    }
+
+    private static String escapeWifi(String s) {
+        return s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+                .replace(":", "\\:").replace("\"", "\\\"");
+    }
+
+    @Override
+    protected void onDestroy() {
+        apkServer.stop();
+        if (installDialog != null && installDialog.isShowing()) installDialog.dismiss();
+        super.onDestroy();
     }
 
     private int dp(float v) {
