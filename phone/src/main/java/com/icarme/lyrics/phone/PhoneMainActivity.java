@@ -217,11 +217,11 @@ public class PhoneMainActivity extends Activity {
         card.addView(cap);
 
         ImageView tip = new ImageView(this);
-        tip.setImageResource(R.drawable.wechat_tip);
+        tip.setImageResource(R.drawable.wechat_qr);
         tip.setAdjustViewBounds(true);
         tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(220));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(240));
         ilp.topMargin = dp(6);
         tip.setLayoutParams(ilp);
         card.addView(tip);

@@ -356,13 +356,6 @@ public class MainActivity extends Activity {
         tvScanHint.setVisibility(View.GONE);
         box.addView(tvScanHint);
 
-        Button btnInstall = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnInstall.setText("2 · 扫码下载手机端");
-        styleButton(btnInstall, R.drawable.btn_primary, 0xFFFFFFFF, true);
-        btnInstall.setOnClickListener(v -> showInstallQr());
-        box.addView(btnInstall);
-
         Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
         btnUpd.setText("检查更新（GitHub）");
@@ -373,61 +366,58 @@ public class MainActivity extends Activity {
 
         btnService = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnService.setText("3 · 启动歌词悬浮");
+        btnService.setText("2 · 启动歌词悬浮");
         styleButton(btnService, R.drawable.btn_primary, 0xFFFFFFFF, true);
         btnService.setOnClickListener(v -> toggleService());
         box.addView(btnService);
         return box;
     }
 
-    /** 右侧卡片：上=手机下载码，下=微信赞赏大图 */
+    /** 右侧：左=下载手机端，右=微信赞赏码（抠出的本体，右侧更大） */
     private View buildQrCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.card_bg);
-        card.setPadding(dp(12), dp(10), dp(12), dp(10));
-        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        card.setPadding(dp(10), dp(10), dp(10), dp(10));
+
+        TextView cap = new TextView(this);
+        cap.setText("左：下载手机端 · 右：微信赞赏");
+        cap.setTextColor(C_TEXT_DIM);
+        cap.setTextSize(12);
+        cap.setGravity(Gravity.CENTER);
+        card.addView(cap);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+        rlp.topMargin = dp(6);
+        row.setLayoutParams(rlp);
 
+        /* 下载码 */
         ImageView dl = new ImageView(this);
         try {
-            dl.setImageBitmap(QrEncoder.encode(PHONE_APK_URL, 5));
+            dl.setImageBitmap(QrEncoder.encode(PHONE_APK_URL, 4));
         } catch (Exception ignored) {}
-        row.addView(dl, new LinearLayout.LayoutParams(dp(120), dp(120)));
+        dl.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        row.addView(dl, new LinearLayout.LayoutParams(0, dp(150), 1f));
 
-        LinearLayout tbox = new LinearLayout(this);
-        tbox.setOrientation(LinearLayout.VERTICAL);
-        tbox.setGravity(Gravity.CENTER_VERTICAL);
-        TextView t1 = new TextView(this);
-        t1.setText("扫码下载\n手机端");
-        t1.setTextColor(C_PRIMARY);
-        t1.setTextSize(14);
-        t1.setLineSpacing(dp(3), 1f);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tlp.leftMargin = dp(10);
-        t1.setLayoutParams(tlp);
-        tbox.addView(t1);
-        row.addView(tbox);
+        /* 赞赏码本体（右侧稍大） */
+        ImageView tip = new ImageView(this);
+        tip.setImageResource(R.drawable.wechat_qr);
+        tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(0, dp(170), 1.25f);
+        tipLp.leftMargin = dp(10);
+        tip.setLayoutParams(tipLp);
+        row.addView(tip);
+
         card.addView(row);
 
-        ImageView tip = new ImageView(this);
-        tip.setImageResource(R.drawable.wechat_tip);
-        tip.setAdjustViewBounds(true);
-        tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        tipLp.topMargin = dp(8);
-        tip.setLayoutParams(tipLp);
-        card.addView(tip);
-
         TextView tipCap = new TextView(this);
-        tipCap.setText("Mysa 赞赏码");
+        tipCap.setText("Mysa");
         tipCap.setTextColor(C_AMBER);
-        tipCap.setTextSize(13);
+        tipCap.setTextSize(12);
         tipCap.setGravity(Gravity.CENTER);
         tipCap.setPadding(0, dp(4), 0, 0);
         card.addView(tipCap);
@@ -460,7 +450,7 @@ public class MainActivity extends Activity {
         lp.topMargin = dp(20);
         box.setLayoutParams(lp);
 
-        boolean showHelp = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SHOW_HELP, true);
+        boolean showHelp = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SHOW_HELP, false);
 
         Button btnHelp = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
@@ -580,7 +570,7 @@ public class MainActivity extends Activity {
                 : "blue".equals(col) ? "蓝" : "green".equals(col) ? "绿"
                 : "amber".equals(col) ? "琥珀" : "粉");
 
-        btnService.setText(svc ? "3 · 停止歌词悬浮" : "3 · 启动歌词悬浮");
+        btnService.setText(svc ? "2 · 停止歌词悬浮" : "2 · 启动歌词悬浮");
     }
 
     /* ---------------- 扫描发现手机 ---------------- */
