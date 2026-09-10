@@ -68,8 +68,7 @@ public class PhoneMainActivity extends Activity {
         root.addView(buildLrcCard());
         setContentView(scroll);
 
-        ui.postDelayed(() -> UpdateChecker.checkAndPrompt(this,
-                BuildConfig.VERSION_NAME, true), 2500);
+        /* 仅手动检查更新 */
 
         /* 实时监控：每秒刷新链路状态 */
         ui.postDelayed(new Runnable() {
@@ -198,7 +197,7 @@ public class PhoneMainActivity extends Activity {
         return box;
     }
 
-    /** 主界面直接露出微信赞赏码 */
+    /** 赞赏码 + 车机端下载码 */
     private View buildTipCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -210,21 +209,41 @@ public class PhoneMainActivity extends Activity {
         card.setLayoutParams(lp);
 
         TextView cap = new TextView(this);
-        cap.setText("赞赏支持 · Mysa");
-        cap.setTextColor(C_AMBER);
+        cap.setText("左：下载车机端 · 右：微信赞赏");
+        cap.setTextColor(C_TEXT_DIM);
         cap.setTextSize(13);
         cap.setGravity(Gravity.CENTER);
         card.addView(cap);
 
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, 0);
+
+        ImageView car = new ImageView(this);
+        try {
+            car.setImageBitmap(QrEncoder.encode(
+                    "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk", 4));
+        } catch (Exception ignored) {}
+        car.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        row.addView(car, new LinearLayout.LayoutParams(0, dp(150), 1f));
+
         ImageView tip = new ImageView(this);
         tip.setImageResource(R.drawable.wechat_qr);
-        tip.setAdjustViewBounds(true);
         tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(240));
-        ilp.topMargin = dp(6);
-        tip.setLayoutParams(ilp);
-        card.addView(tip);
+        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(0, dp(150), 1f);
+        tipLp.leftMargin = dp(10);
+        tip.setLayoutParams(tipLp);
+        row.addView(tip);
+        card.addView(row);
+
+        TextView tipCap = new TextView(this);
+        tipCap.setText("Mysa");
+        tipCap.setTextColor(C_AMBER);
+        tipCap.setTextSize(12);
+        tipCap.setGravity(Gravity.CENTER);
+        tipCap.setPadding(0, dp(4), 0, 0);
+        card.addView(tipCap);
         return card;
     }
 

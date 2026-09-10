@@ -11,8 +11,8 @@ android {
         applicationId 'com.icarme.lyrics.phone'
         minSdk 28          /* 覆盖 Android 9+，红米 K20 Pro (Android 11) 可用 */
         targetSdk 28       /* 侧载 APK，低 target 减少 BLE/后台行为差异 */
-        versionCode 7
-        versionName '2.4.4'
+        versionCode 8
+        versionName '2.4.8'
     }
 
     buildTypes {
@@ -31,6 +31,7 @@ android {
     }
 }
 
-/* 零第三方依赖 */
+/* ZXing：二维码（车机端下载码） */
 dependencies {
+    implementation 'com.google.zxing:core:3.5.3'
 }

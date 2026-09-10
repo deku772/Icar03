@@ -56,7 +56,6 @@ public class MainActivity extends Activity {
     private Button btnService;
     private Button btnScan;
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private final ApkHttpServer apkServer = new ApkHttpServer();
     private AlertDialog installDialog;
 
     /* 扫描发现结果 */
@@ -134,9 +133,7 @@ public class MainActivity extends Activity {
         root.addView(buildHelpCard());
         setContentView(scroll);
 
-        /* 启动时静默检查 GitHub Release 更新 */
-        ui.postDelayed(() -> UpdateChecker.checkAndPrompt(this,
-                BuildConfig.VERSION_NAME, true), 2500);
+        /* 仅手动「检查更新」，启动不自动弹窗 */
 
         /* 周期刷新状态行（服务启动/断连重试等变化即时可见） */
         ui.postDelayed(new Runnable() {
@@ -370,6 +367,21 @@ public class MainActivity extends Activity {
         styleButton(btnService, R.drawable.btn_primary, 0xFFFFFFFF, true);
         btnService.setOnClickListener(v -> toggleService());
         box.addView(btnService);
+
+        Button btnMirror = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnMirror.setText("下载 APK（可选国内镜像）");
+        btnMirror.setBackgroundResource(R.drawable.btn_ghost);
+        btnMirror.setTextColor(C_PRIMARY);
+        btnMirror.setTextSize(14);
+        btnMirror.setAllCaps(false);
+        btnMirror.setStateListAnimator(null);
+        LinearLayout.LayoutParams mlp2 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        mlp2.topMargin = dp(8);
+        btnMirror.setLayoutParams(mlp2);
+        btnMirror.setOnClickListener(v -> showMirrorDownloadDialog());
+        box.addView(btnMirror);
         return box;
     }
 
@@ -705,79 +717,91 @@ public class MainActivity extends Activity {
         ui.postDelayed(this::refreshStatus, 1500);
     }
 
-    /* ---------------- 扫码安装手机端（车机内网分发） ---------------- */
+    /* ---------------- 下载 / 镜像 ---------------- */
 
-    private byte[] loadPhoneApk() {
-        try (java.io.InputStream in = getAssets().open("icarlyrics-phone.apk");
-             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream()) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
-            return bos.toByteArray();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /**
-     * 手机扫 GitHub Release 稳定下载地址（手机有网即可，车机无需开热点）。
-     * CI 会额外上传无版本号的 IcarLyrics-Phone.apk。
-     */
     private static final String PHONE_APK_URL =
             "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Phone.apk";
     private static final String RELEASE_PAGE =
             "https://github.com/deku772/Icar03/releases/latest";
+    /** 国内加速前缀（可手动选用） */
+    private static final String MIRROR_PREFIX = "https://ghfast.top/";
 
-    private void showInstallQr() {
+    private static String withMirror(String url, boolean mirror) {
+        return mirror ? MIRROR_PREFIX + url : url;
+    }
+
+    /** 弹出：官方直链 / 国内镜像（二级，默认折叠说明） */
+    private void showMirrorDownloadDialog() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(10), dp(20), dp(8));
         root.setGravity(Gravity.CENTER_HORIZONTAL);
 
         TextView tip = new TextView(this);
-        tip.setText("手机联网扫码 → 浏览器下载最新手机版 APK\n（Release 固定文件名，永远是最新版）");
+        tip.setText("下载最新 Release APK\n（车机端 / 手机端）\n国内网络可选镜像加速");
         tip.setTextColor(C_TEXT_DIM);
         tip.setTextSize(14);
         tip.setGravity(Gravity.CENTER);
         tip.setLineSpacing(dp(3), 1f);
         root.addView(tip);
 
-        final ImageView qrView = new ImageView(this);
-        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(dp(220), dp(220));
-        qlp.topMargin = dp(10);
-        qrView.setLayoutParams(qlp);
-        try {
-            qrView.setImageBitmap(QrEncoder.encode(PHONE_APK_URL, 5));
-        } catch (Exception e) {
-            showHint("二维码生成失败: " + e);
-            return;
-        }
-        root.addView(qrView);
+        final boolean[] useMirror = {false};
+        final CheckBox cb = new CheckBox(this);
+        cb.setText("使用国内镜像（ghfast.top）");
+        cb.setTextColor(C_TEXT_DIM);
+        cb.setTextSize(13);
+        cb.setOnCheckedChangeListener((bv, checked) -> useMirror[0] = checked);
+        root.addView(cb);
 
-        TextView urlTv = new TextView(this);
-        urlTv.setText(PHONE_APK_URL);
-        urlTv.setTextColor(C_PRIMARY);
-        urlTv.setTextSize(11);
-        urlTv.setGravity(Gravity.CENTER);
-        urlTv.setPadding(0, dp(8), 0, 0);
-        urlTv.setOnClickListener(v -> {
+        final ImageView qrCar = new ImageView(this);
+        final ImageView qrPhone = new ImageView(this);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_HORIZONTAL);
+        row.addView(qrCar, new LinearLayout.LayoutParams(dp(120), dp(120)));
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(dp(120), dp(120));
+        plp.leftMargin = dp(12);
+        qrPhone.setLayoutParams(plp);
+        row.addView(qrPhone);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = dp(8);
+        row.setLayoutParams(rlp);
+        root.addView(row);
+
+        TextView lab = new TextView(this);
+        lab.setText("左：车机端  ·  右：手机端");
+        lab.setTextColor(C_TEXT_DIM);
+        lab.setTextSize(12);
+        lab.setGravity(Gravity.CENTER);
+        root.addView(lab);
+
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
             try {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(RELEASE_PAGE)));
+                qrCar.setImageBitmap(QrEncoder.encode(withMirror(CAR_APK_URL, useMirror[0]), 4));
+                qrPhone.setImageBitmap(QrEncoder.encode(withMirror(PHONE_APK_URL, useMirror[0]), 4));
             } catch (Exception ignored) {}
+        };
+        render[0].run();
+        cb.setOnCheckedChangeListener((bv, checked) -> {
+            useMirror[0] = checked;
+            render[0].run();
         });
-        root.addView(urlTv);
 
-        installDialog = new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
+        new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
                 android.R.style.Theme_Material_Dialog))
-                .setTitle("下载手机端（GitHub Release）")
+                .setTitle("下载 APK（可选镜像）")
                 .setView(root)
                 .setNegativeButton("关闭", null)
                 .show();
     }
 
+    private static final String CAR_APK_URL =
+            "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk";
+
     @Override
     protected void onDestroy() {
-        apkServer.stop();
         if (installDialog != null && installDialog.isShowing()) installDialog.dismiss();
         super.onDestroy();
     }

@@ -1,6 +1,6 @@
 # IcarLyrics
 
-[![Release](https://img.shields.io/badge/release-v2.4.0-blue)](../../releases)
+[![Release](https://img.shields.io/badge/release-v2.4.8-blue)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬浮窗渲染**。  
