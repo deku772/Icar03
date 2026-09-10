@@ -75,6 +75,40 @@ public final class HotspotInfo {
         return s;
     }
 
+    /** 尽力开启系统热点（Android 9 隐藏 API，失败则由调用方打开设置页） */
+    public static boolean tryEnableAp(Context ctx) {
+        try {
+            WifiManager wm = (WifiManager) ctx.getApplicationContext()
+                    .getSystemService(Context.WIFI_SERVICE);
+            if (wm == null) return false;
+            Method m = wm.getClass().getDeclaredMethod("setWifiApEnabled",
+                    WifiConfiguration.class, boolean.class);
+            m.setAccessible(true);
+            Object r = m.invoke(wm, null, true);
+            return r instanceof Boolean && (Boolean) r;
+        } catch (Throwable t) {
+            Log.w(TAG, "tryEnableAp failed", t);
+            return false;
+        }
+    }
+
+    /** 打开系统热点/网络共享设置页 */
+    public static void openTetherSettings(Context ctx) {
+        String[] actions = {
+                "android.settings.TETHER_SETTINGS",
+                "android.settings.WIFI_AP_SETTINGS",
+                android.provider.Settings.ACTION_WIRELESS_SETTINGS
+        };
+        for (String a : actions) {
+            try {
+                android.content.Intent i = new android.content.Intent(a);
+                i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+                return;
+            } catch (Exception ignored) {}
+        }
+    }
+
     /** Wi-Fi 二维码 payload（WPA/WPA2 或开放） */
     public String wifiQrPayload() {
         if (!valid()) return null;
