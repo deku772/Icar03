@@ -7,6 +7,9 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -21,10 +24,17 @@ import android.webkit.WebViewClient;
 
 import org.json.JSONObject;
 
+import java.util.List;
+
 /**
  * 悬浮窗渲染服务：
  * TYPE_APPLICATION_OVERLAY + WebView 加载 assets/lyrics_overlay.html。
  * 对外提供 push(jsonString) 供 BleService 转发数据。
+ *
+ * v2.1 歌词同步：轮询车机蓝牙栈 MediaSession（com.android.bluetooth）的
+ * 播放进度作为可信时间轴——它与车机实际发声对齐，消除手机 A2DP 推流
+ * +车机缓冲导致的歌词慢几秒（官方 03歌词 同款思路）。
+ * BLE 进度包降级为兜底：本地会话未授权/不可用时仍用手机推来的进度。
  */
 public class OverlayService extends Service {
 
@@ -35,6 +45,14 @@ public class OverlayService extends Service {
     private WebView web;
     private Handler ui;
     private boolean pageReady;
+
+    /* ---- 本地可信时间轴（车机蓝牙栈进度） ---- */
+    private long localPosMs = -1;      /* 最近一次蓝牙栈 position 快照 */
+    private long localSyncAt = 0;      /* 快照时刻（本机时钟） */
+    private boolean localPlaying = false;
+    private boolean localReady = false;
+    private long lyricsAt = 0;         /* 最近一次换歌时刻（换歌保护窗，防旧快照污染新曲） */
+    private Runnable localTimelineTask;
 
     @Override
     public IBinder onBind(Intent intent) { return null; }
@@ -47,12 +65,14 @@ public class OverlayService extends Service {
         ui = new Handler(Looper.getMainLooper());
         startForeground();
         ui.post(this::showOverlay);
+        startLocalTimeline();
     }
 
     @Override
     public void onDestroy() {
         running = false;
         instance = null;
+        stopLocalTimeline();
         ui.post(this::hideOverlay);
         stopForeground(true);
         super.onDestroy();
@@ -64,17 +84,89 @@ public class OverlayService extends Service {
         if (svc != null) svc.dispatch(json);
     }
 
+    /* ---------------- 本地时间轴轮询（1s） ---------------- */
+
+    private void startLocalTimeline() {
+        /* 覆盖安装后系统可能不重绑监听服务，主动请求一次 */
+        try {
+            android.service.notification.NotificationListenerService
+                    .requestRebind(CarMediaListener.COMPONENT);
+        } catch (Throwable ignored) {}
+        localTimelineTask = new Runnable() {
+            @Override public void run() {
+                pollLocalTimeline();
+                ui.postDelayed(this, 1000);
+            }
+        };
+        ui.post(localTimelineTask);
+    }
+
+    private void stopLocalTimeline() {
+        if (localTimelineTask != null) {
+            ui.removeCallbacks(localTimelineTask);
+            localTimelineTask = null;
+        }
+    }
+
+    /** 读车机蓝牙栈会话进度；未授权/无会话时保持 localReady=false（走 BLE 兜底） */
+    private void pollLocalTimeline() {
+        try {
+            MediaSessionManager msm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
+            if (msm == null) return;
+            List<MediaController> list = msm.getActiveSessions(CarMediaListener.COMPONENT);
+            for (MediaController c : list) {
+                String pkg = c.getPackageName();
+                if (pkg == null || !pkg.contains("bluetooth")) continue;
+                PlaybackState ps = c.getPlaybackState();
+                if (ps == null) continue;
+                int st = ps.getState();
+                if (st != PlaybackState.STATE_PLAYING && st != PlaybackState.STATE_PAUSED) continue;
+                localPosMs = Math.max(0, ps.getPosition());
+                localSyncAt = System.currentTimeMillis();
+                localPlaying = (st == PlaybackState.STATE_PLAYING);
+                localReady = true;
+                return;   /* 取第一个蓝牙栈会话即可 */
+            }
+        } catch (Exception e) {
+            /* SecurityException：通知使用权未授权（adb cmd notification allow_listener） */
+            localReady = false;
+        }
+    }
+
+    /** 本地时间轴插值当前位置（快照过期 3.5s 视为不可信） */
+    private long localNow() {
+        if (!localReady) return -1;
+        long dt = System.currentTimeMillis() - localSyncAt;
+        if (dt > 3500) return -1;
+        return localPlaying ? localPosMs + dt : localPosMs;
+    }
+
 private void dispatch(final String json) {
         ui.post(() -> {
             if (web == null || !pageReady) return;
             try {
                 JSONObject obj = new JSONObject(json);
                 String type = obj.optString("type", "");
+                String payload = json;
+                if ("progress".equals(type)) {
+                    /* 进度包：本地蓝牙栈时间轴可信时覆盖 positionMs/playing，
+                     * 消除 A2DP 传输+缓冲延迟；durationMs 等其余字段保留。
+                     * 换歌后 4s 内且本地快照早于换歌时刻 → 不覆盖（旧曲快照） */
+                    long now = System.currentTimeMillis();
+                    long ln = (now - lyricsAt > 4000 || localSyncAt > lyricsAt) ? localNow() : -1;
+                    if (ln >= 0) {
+                        obj.put("positionMs", ln);
+                        obj.put("playing", localPlaying);
+                        payload = obj.toString();
+                    }
+                } else if ("lyrics".equals(type)) {
+                    lyricsAt = System.currentTimeMillis();
+                }
                 String js;
                 if ("lyrics".equals(type)) {
                     js = "IcarJS.onLyrics(" + JSONObject.quote(json) + ")";
                 } else if ("progress".equals(type)) {
-                    js = "IcarJS.onProgress(" + JSONObject.quote(json) + ")";
+                    js = "IcarJS.onProgress(" + JSONObject.quote(payload) + ")";
                 } else if ("cmd".equals(type)) {
                     js = "IcarJS.onCmd(" + JSONObject.quote(json) + ")";
                 } else if ("conn".equals(type)) {
@@ -156,14 +248,14 @@ private void dispatch(final String json) {
         Notification n;
         if (Build.VERSION.SDK_INT >= 26) {
             n = new Notification.Builder(this, chId)
-                    .setSmallIcon(android.R.drawable.ic_media_play)
+                    .setSmallIcon(R.drawable.ic_stat_lyrics)
                     .setContentTitle("IcarLyrics 运行中")
                     .setContentText("等待手机端 BLE 推送歌词")
                     .setOngoing(true)
                     .build();
         } else {
             n = new Notification.Builder(this)
-                    .setSmallIcon(android.R.drawable.ic_media_play)
+                    .setSmallIcon(R.drawable.ic_stat_lyrics)
                     .setContentTitle("IcarLyrics 运行中")
                     .setOngoing(true)
                     .build();

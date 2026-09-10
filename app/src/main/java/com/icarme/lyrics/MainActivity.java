@@ -11,15 +11,17 @@ import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelUuid;
 import android.provider.Settings;
+import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -28,30 +30,47 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 主界面：授权引导 + 扫描发现手机（选一次记住） + 服务开关 + ADB 命令展示。
- * 车机上若无桌面图标场景，可通过 adb shell am start 拉起。
+ * 主界面（v2.1 深色车机风格）：
+ * 状态卡片（彩色指示点）+ 大号圆角按钮 + 帮助卡片。
  *
- * v2.0：车机为 GATT 客户端，按扫描发现的手机 MAC 直连（手机广播 IcarLyrics
- * 服务 UUID）。不再手工填 MAC——手机系统会隐藏真实蓝牙地址，填了也对不上。
+ * v2.0：车机为 GATT 客户端，扫描发现手机（IcarLyrics 服务 UUID）后直连，
+ * 不再手工配置 MAC（手机外设地址随机化，存 MAC 不可靠）。
  */
 public class MainActivity extends Activity {
 
     private static final long SCAN_MS = 10000;
 
+    /* 深色主题色板 */
+    private static final int C_BG        = 0xFF0B0F17;
+    private static final int C_CARD      = 0xFF141A28;
+    private static final int C_STROKE    = 0xFF232C42;
+    private static final int C_TEXT      = 0xFFEFF2F8;
+    private static final int C_TEXT_DIM  = 0xFF8A93A8;
+    private static final int C_PRIMARY   = 0xFF5B93F0;
+    private static final int C_GREEN     = 0xFF4ADE80;
+    private static final int C_RED       = 0xFFF87171;
+    private static final int C_AMBER     = 0xFFFBBF24;
+
     private Button btnService;
     private Button btnScan;
-    private TextView tvStatus;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
-    /* 扫描发现结果：address -> 展示名 */
+    /* 扫描发现结果 */
     private final List<ScanResult> found = new ArrayList<>();
     private boolean scanning = false;
 
+    /* 状态行控件（refreshStatus 动态更新点色与值） */
+    private static final int ROW_COUNT = 5;
+    private static final int ROW_PERM = 0, ROW_OVERLAY = 1, ROW_BLE = 2, ROW_CONN = 3, ROW_PHONE = 4;
+    private final View[] rowDots = new View[ROW_COUNT];
+    private final TextView[] rowValues = new TextView[ROW_COUNT];
+    private TextView tvScanHint;
+
     private final ScanCallback scanCb = new ScanCallback() {
         @Override public void onScanResult(int callbackType, ScanResult result) {
-            for (ScanResult r : found) {
-                if (r.getDevice().getAddress().equals(result.getDevice().getAddress())) {
-                    found.set(found.indexOf(r), result);   /* 刷新 RSSI */
+            for (int i = 0; i < found.size(); i++) {
+                if (found.get(i).getDevice().getAddress().equals(result.getDevice().getAddress())) {
+                    found.set(i, result);   /* 刷新 RSSI */
                     return;
                 }
             }
@@ -59,62 +78,197 @@ public class MainActivity extends Activity {
         }
         @Override public void onScanFailed(int errorCode) {
             scanning = false;
-            tvStatus.setText(tvStatus.getText() + "\n扫描失败(" + errorCode + ")：检查定位权限");
+            btnScan.setText("扫描失败(" + errorCode + ")，点此重试");
         }
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        int pad = dp(24);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (getResources().getDisplayMetrics().density * 20);
+        root.setBackgroundColor(C_BG);
         root.setPadding(pad, pad, pad, pad);
 
-        TextView title = new TextView(this);
-        title.setText("IcarLyrics\n车机悬浮歌词（BLE 接收端）");
-        title.setTextSize(20);
-        root.addView(title);
-
-        tvStatus = new TextView(this);
-        tvStatus.setPadding(0, pad, 0, 0);
-        root.addView(tvStatus);
-
-        btnScan = new Button(this);
-        btnScan.setText("1. 扫描发现手机（选一次记住）");
-        btnScan.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { scanPhones(); }
-        });
-        root.addView(btnScan);
-
-        btnService = new Button(this);
-        btnService.setText("2. 启动/停止 歌词悬浮");
-        btnService.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { toggleService(); }
-        });
-        root.addView(btnService);
-
-        TextView help = new TextView(this);
-        help.setText(AdbHelper.helpText());
-        help.setTextSize(13);
-        ScrollView sv = new ScrollView(this);
-        sv.addView(help);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        lp.topMargin = pad;
-        sv.setLayoutParams(lp);
-        root.addView(sv);
-
+        root.addView(buildHeader());
+        root.addView(buildStatusCard());
+        root.addView(buildButtons());
+        root.addView(buildHelpCard());
         setContentView(root);
 
+        /* 周期刷新状态行（服务启动/断连重试等变化即时可见） */
+        ui.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (isFinishing()) return;
+                refreshStatus();
+                ui.postDelayed(this, 1000);
+            }
+        }, 500);
+
         if (!Settings.canDrawOverlays(this)) {
-            /* 车机无标准权限页时的兜底：走 ADB appop 授权，见下方命令说明 */
             try {
                 startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:" + getPackageName())));
-            } catch (Exception ignored) { /* 无对应页面则忽略 */ }
+            } catch (Exception ignored) { }
         }
     }
+
+    /* ---------------- 界面构建 ---------------- */
+
+    private View buildHeader() {
+        LinearLayout h = new LinearLayout(this);
+        h.setOrientation(LinearLayout.HORIZONTAL);
+        h.setGravity(Gravity.CENTER_VERTICAL);
+
+        /* Logo 徽章：圆角深底 + 蓝描边 + 前景矢量 */
+        GradientDrawable badge = new GradientDrawable();
+        badge.setCornerRadius(dp(16));
+        badge.setColor(0xFF101725);
+        badge.setStroke(dp(1), C_STROKE);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_launcher_foreground);
+        logo.setBackground(badge);
+        logo.setPadding(dp(8), dp(8), dp(8), dp(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(64), dp(64));
+        lp.rightMargin = dp(16);
+        logo.setLayoutParams(lp);
+        h.addView(logo);
+
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("IcarLyrics");
+        title.setTextColor(C_TEXT);
+        title.setTextSize(26);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        TextView sub = new TextView(this);
+        sub.setText("车机悬浮歌词 · BLE 接收端");
+        sub.setTextColor(C_TEXT_DIM);
+        sub.setTextSize(14);
+        t.addView(title);
+        t.addView(sub);
+        h.addView(t);
+        return h;
+    }
+
+    private View buildStatusCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_bg);
+        card.setPadding(dp(20), dp(16), dp(20), dp(16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(20);
+        card.setLayoutParams(lp);
+
+        String[] labels = {"悬浮窗权限", "悬浮服务", "BLE 服务", "连接状态", "手机地址"};
+        for (int i = 0; i < ROW_COUNT; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(6), 0, dp(6));
+
+            View dot = new View(this);
+            GradientDrawable d = new GradientDrawable();
+            d.setShape(GradientDrawable.OVAL);
+            d.setColor(C_GREEN);
+            dot.setBackground(d);
+            row.addView(dot, new LinearLayout.LayoutParams(dp(9), dp(9)));
+
+            TextView label = new TextView(this);
+            label.setText(labels[i]);
+            label.setTextColor(C_TEXT_DIM);
+            label.setTextSize(15);
+            LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
+                    dp(110), LinearLayout.LayoutParams.WRAP_CONTENT);
+            llp.leftMargin = dp(14);
+            label.setLayoutParams(llp);
+            row.addView(label);
+
+            TextView value = new TextView(this);
+            value.setTextColor(C_TEXT);
+            value.setTextSize(15);
+            value.setSingleLine(false);
+            value.setMaxLines(2);
+            row.addView(value, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+            rowDots[i] = dot;
+            rowValues[i] = value;
+            card.addView(row);
+        }
+        return card;
+    }
+
+    private View buildButtons() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(20);
+        box.setLayoutParams(blp);
+
+        btnScan = new Button(this);
+        btnScan.setText("扫描发现手机");
+        styleButton(btnScan, R.drawable.btn_primary, 0xFFFFFFFF, true);
+        btnScan.setOnClickListener(v -> scanPhones());
+        box.addView(btnScan);
+
+        tvScanHint = new TextView(this);
+        tvScanHint.setTextColor(C_TEXT_DIM);
+        tvScanHint.setTextSize(13);
+        tvScanHint.setGravity(Gravity.CENTER);
+        tvScanHint.setPadding(0, dp(8), 0, dp(8));
+        tvScanHint.setVisibility(View.GONE);
+        box.addView(tvScanHint);
+
+        btnService = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnService.setText("启动歌词悬浮");
+        styleButton(btnService, R.drawable.btn_ghost, C_PRIMARY, false);
+        btnService.setOnClickListener(v -> toggleService());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(54));
+        lp.topMargin = dp(12);
+        btnService.setLayoutParams(lp);
+        box.addView(btnService);
+        return box;
+    }
+
+    private void styleButton(Button b, int bg, int textColor, boolean big) {
+        b.setBackgroundResource(bg);
+        b.setTextColor(textColor);
+        b.setTextSize(big ? 18 : 16);
+        b.setAllCaps(false);
+        b.setStateListAnimator(null);
+        b.setPadding(dp(20), 0, dp(20), 0);
+        if (big) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(58));
+            b.setLayoutParams(lp);
+        }
+    }
+
+    private View buildHelpCard() {
+        TextView help = new TextView(this);
+        help.setText(AdbHelper.helpText());
+        help.setTextColor(C_TEXT_DIM);
+        help.setTextSize(13);
+        help.setLineSpacing(dp(3), 1f);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(help);
+        sv.setBackgroundResource(R.drawable.card_bg);
+        sv.setPadding(dp(20), dp(16), dp(20), dp(16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+        lp.topMargin = dp(20);
+        sv.setLayoutParams(lp);
+        return sv;
+    }
+
+    /* ---------------- 状态刷新 ---------------- */
 
     @Override
     protected void onResume() {
@@ -122,16 +276,42 @@ public class MainActivity extends Activity {
         refreshStatus();
     }
 
+    private void setDot(int row, int color) {
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        d.setColor(color);
+        rowDots[row].setBackground(d);
+    }
+
     private void refreshStatus() {
         boolean overlay = Settings.canDrawOverlays(this);
         boolean svc = OverlayService.running;
         boolean ble = BleService.running;
-        tvStatus.setText("悬浮窗权限: " + (overlay ? "已授予" : "未授予（需 ADB）")
-                + "\n悬浮服务: " + (svc ? "运行中" : "已停止")
-                + "\nBLE 服务: " + (ble ? "运行中" : "已停止")
-                + "\n连接状态: " + BleService.advState
-                + "\n已选手机: " + BleService.phoneMacText());
-        btnService.setText(svc ? "停止 歌词悬浮" : "2. 启动/停止 歌词悬浮");
+        String conn = BleService.advState;
+        String phone = BleService.phoneMacText();
+
+        setDot(ROW_PERM, overlay ? C_GREEN : C_RED);
+        rowValues[ROW_PERM].setText(overlay ? "已授予" : "未授予（需 ADB 授权）");
+
+        setDot(ROW_OVERLAY, svc ? C_GREEN : 0xFF4B5563);
+        rowValues[ROW_OVERLAY].setText(svc ? "运行中" : "已停止");
+
+        setDot(ROW_BLE, ble ? C_GREEN : 0xFF4B5563);
+        rowValues[ROW_BLE].setText(ble ? "运行中" : "已停止");
+
+        int connColor = 0xFF4B5563;
+        if (conn != null) {
+            if (conn.contains("已连接")) connColor = C_GREEN;
+            else if (conn.contains("扫描") || conn.contains("连接中") || conn.contains("发现")) connColor = C_PRIMARY;
+            else if (conn.contains("重试") || conn.contains("失败") || conn.contains("超时") || conn.contains("未发现")) connColor = C_AMBER;
+        }
+        setDot(ROW_CONN, connColor);
+        rowValues[ROW_CONN].setText(conn == null || conn.isEmpty() ? "未启动" : conn);
+
+        setDot(ROW_PHONE, phone.equals("未配置") ? C_AMBER : C_PRIMARY);
+        rowValues[ROW_PHONE].setText(phone + (phone.equals("未配置") ? "（点上方按钮扫描）" : " · 地址会变，无需手填"));
+
+        btnService.setText(svc ? "停止歌词悬浮" : "启动歌词悬浮");
     }
 
     /* ---------------- 扫描发现手机 ---------------- */
@@ -144,15 +324,14 @@ public class MainActivity extends Activity {
         BluetoothManager bm = (BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = (bm == null) ? null : bm.getAdapter();
         if (adapter == null || !adapter.isEnabled()) {
-            tvStatus.setText("蓝牙未开启");
+            showHint("蓝牙未开启");
             return;
         }
         if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
             try {
                 requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1);
             } catch (Exception ignored) {}
-            tvStatus.setText("缺少定位权限（BLE 扫描需要）\nADB: pm grant com.icarme.lyrics "
-                    + "android.permission.ACCESS_FINE_LOCATION");
+            showHint("缺少定位权限（BLE 扫描需要）\nADB: pm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
             return;
         }
         if (scanning) return;
@@ -165,13 +344,18 @@ public class MainActivity extends Activity {
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
             adapter.getBluetoothLeScanner().startScan(filters, settings, scanCb);
             scanning = true;
-            tvStatus.setText("正在扫描手机（10 秒）…请确保手机端推送服务已启动");
-            btnScan.setText("扫描中…");
+            btnScan.setText("扫描中…（10 秒）");
+            showHint("请确保手机端推送服务已启动");
             ui.postDelayed(this::showScanResult, SCAN_MS);
         } catch (Exception e) {
             scanning = false;
-            tvStatus.setText("扫描发起失败: " + e);
+            showHint("扫描发起失败: " + e);
         }
+    }
+
+    private void showHint(String s) {
+        tvScanHint.setVisibility(View.VISIBLE);
+        tvScanHint.setText(s);
     }
 
     private void showScanResult() {
@@ -183,12 +367,13 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {}
         scanning = false;
-        btnScan.setText("1. 扫描发现手机（重新扫描）");
+        btnScan.setText("重新扫描");
 
         if (found.isEmpty()) {
-            tvStatus.setText("未发现 IcarLyrics 手机。\n请确认：手机端推送服务已启动、手机蓝牙开启、距离够近。");
+            showHint("未发现 IcarLyrics 手机。请确认：手机端推送服务已启动、手机蓝牙开启、距离够近。");
             return;
         }
+        tvScanHint.setVisibility(View.GONE);
         String[] names = new String[found.size()];
         for (int i = 0; i < found.size(); i++) {
             ScanResult r = found.get(i);
@@ -197,14 +382,13 @@ public class MainActivity extends Activity {
                 try { n = r.getDevice().getName(); } catch (SecurityException ignored) {}
             }
             names[i] = (n == null || n.isEmpty() ? "未知设备" : n)
-                    + " (" + r.getDevice().getAddress() + ")  RSSI " + r.getRssi();
+                    + "\n" + r.getDevice().getAddress() + " · 信号 " + r.getRssi();
         }
-        new AlertDialog.Builder(this)
-                .setTitle("选择手机（记住，之后自动连接）")
+        new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
+                android.R.style.Theme_Material_Dialog))
+                .setTitle("选择手机")
                 .setItems(names, (d, which) -> {
                     String mac = found.get(which).getDevice().getAddress();
-                    getSharedPreferences("icarlyrics", MODE_PRIVATE)
-                            .edit().putString("phone_device", mac).apply();
                     BleService.phoneMac = mac;
                     refreshStatus();
                     restartBle();
@@ -235,14 +419,17 @@ public class MainActivity extends Activity {
             stopService(new Intent(this, BleService.class));
         } else {
             if (!Settings.canDrawOverlays(this)) {
-                tvStatus.setText("请先用下方 ADB 命令授予悬浮窗权限");
+                showHint("请先用 ADB 命令授予悬浮窗权限（见下方帮助）");
                 return;
             }
             startService(new Intent(this, OverlayService.class));
             startService(new Intent(this, BleService.class));
         }
-        /* 服务/连接启动异步，延迟刷新状态 */
         ui.postDelayed(this::refreshStatus, 300);
         ui.postDelayed(this::refreshStatus, 1500);
+    }
+
+    private int dp(float v) {
+        return (int) (getResources().getDisplayMetrics().density * v);
     }
 }

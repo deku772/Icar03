@@ -423,14 +423,14 @@ public class BleService extends Service {
             Notification n;
             if (Build.VERSION.SDK_INT >= 26) {
                 n = new Notification.Builder(this, "icarlyrics_ble")
-                        .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                        .setSmallIcon(R.drawable.ic_stat_lyrics)
                         .setContentTitle("IcarLyrics BLE")
                         .setContentText(text)
                         .setOngoing(true)
                         .build();
             } else {
                 n = new Notification.Builder(this)
-                        .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                        .setSmallIcon(R.drawable.ic_stat_lyrics)
                         .setContentText(text)
                         .setOngoing(true)
                         .build();
@@ -455,14 +455,14 @@ public class BleService extends Service {
         Notification n;
         if (Build.VERSION.SDK_INT >= 26) {
             n = new Notification.Builder(this, chId)
-                    .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                    .setSmallIcon(R.drawable.ic_stat_lyrics)
                     .setContentTitle("IcarLyrics BLE")
                     .setContentText("连接手机并接收歌词推送")
                     .setOngoing(true)
                     .build();
         } else {
             n = new Notification.Builder(this)
-                    .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                    .setSmallIcon(R.drawable.ic_stat_lyrics)
                     .setContentText("连接手机并接收歌词推送")
                     .setOngoing(true)
                     .build();

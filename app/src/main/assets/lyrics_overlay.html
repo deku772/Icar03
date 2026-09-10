@@ -5,11 +5,63 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>IcarLyrics</title>
 <style>
-  html,body{margin:0;padding:0;background:transparent;overflow:hidden;
-    font-family:"MiSans","HarmonyOS Sans SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  /* ============================================================
+   * IcarLyrics 渲染前端 v2.1（DOM + 合成器动画重写版）
+   *
+   * v2.0 及之前用 Canvas 每帧全屏重绘 + shadowBlur，车机 Android 9
+   * WebView 低端 GPU 上掉帧卡顿。本版改为官方 03歌词 同款架构：
+   *   - 歌词行是一次性构建的 DOM 节点，切行只 toggle class
+   *   - 滚动 = 容器 translate3d + CSS transition（合成器补间，零 JS 逐帧）
+   *   - 当前行字号变化用 FLIP（起始 transform → reflow → 释放给 transition）
+   *   - 阴影/渐隐/呼吸全部走 CSS（text-shadow/mask/animation）
+   *   - 放弃逐字卡拉OK填充（行级同步），这是流畅的关键取舍
+   * 数据协议不变：IcarJS.onLyrics/onProgress/onCmd
+   * ============================================================ */
+  :root{
+    --fs: 34px; --fs-active: 46px; --fs-trans: 19px; --pad: 13px;
+    --motion: 240ms cubic-bezier(.22,.75,.18,1);
+    --fg:#FFFFFF; --near:rgba(255,255,255,.66); --past:rgba(255,255,255,.26);
+    --far:rgba(255,255,255,.44); --shadow:0 2px 10px rgba(0,0,0,.55);
+    --dim:rgba(255,255,255,.45);
+  }
+  body.theme-light{
+    --fg:#171B21; --near:rgba(20,27,35,.66); --past:rgba(20,27,35,.26);
+    --far:rgba(20,27,35,.42); --shadow:0 2px 8px rgba(255,255,255,.65);
+    --dim:rgba(20,27,35,.5);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;overflow:hidden;background:transparent;
+    font-family:"MiSans","HarmonyOS Sans SC","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
     -webkit-user-select:none;user-select:none;}
-  #cv{position:absolute;left:0;top:0;}
-  #panel{position:absolute;right:10px;top:10px;z-index:9;background:rgba(20,22,30,.92);
+  /* 不用 inset 简写（Chrome 87+ 才支持，车机老 WebView 不认会导致舞台零尺寸） */
+  #stage{position:fixed;top:0;left:0;width:100%;height:100%;overflow:hidden;
+    -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);
+    mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);}
+  body.no-lyrics #stage{display:none;}
+  #lyrics{position:absolute;top:0;left:0;right:0;padding:46% 20px;
+    will-change:transform;transition:transform var(--motion);}
+  #lyrics.no-anim{transition:none;}
+  .line{padding:var(--pad) 0;color:var(--far);font-size:var(--fs);line-height:1.3;
+    font-weight:620;text-align:center;opacity:.92;
+    transition:transform var(--motion),opacity var(--motion) ease,color 160ms ease;}
+  .line .orig{display:block;}
+  .line .trans{display:none;margin-top:4px;font-size:var(--fs-trans);line-height:1.25;
+    font-weight:560;opacity:.85;}
+  body.has-trans .line.has-trans .trans{display:block;}
+  .line.near{color:var(--near);}
+  .line.past{color:var(--past);}
+  .line.active{color:var(--fg);font-weight:820;font-size:var(--fs-active);
+    text-shadow:var(--shadow);}
+  .line.active .trans{color:var(--fg);font-weight:620;opacity:.84;}
+  body.paused .line.active{animation:breathe 2.4s ease-in-out infinite;}
+  @keyframes breathe{50%{opacity:.55;}}
+  #hint{position:fixed;top:2.4vh;left:0;right:0;text-align:center;color:var(--dim);
+    font-size:17px;line-height:1.7;transition:opacity .3s;}
+  #hint .sub{font-size:13px;opacity:.75;}
+  body.no-lyrics #hint{opacity:1;}
+  body:not(.no-lyrics) #hint{opacity:0;}
+  /* 演示面板（浏览器调试用；车机由 clean 模式隐藏） */
+  #panel{position:fixed;right:10px;top:10px;z-index:9;background:rgba(20,22,30,.92);
     color:#e8eaf0;border:1px solid rgba(255,255,255,.15);border-radius:10px;
     padding:10px 14px;font-size:13px;line-height:1.9;min-width:180px;}
   #panel h3{margin:0 0 4px;font-size:13px;color:#7fb0ff;font-weight:600;}
@@ -17,24 +69,18 @@
   #panel button{flex:1;padding:4px 8px;font-size:12px;color:#e8eaf0;background:#2c3242;
     border:1px solid rgba(255,255,255,.16);border-radius:6px;cursor:pointer;}
   #panel button.on{background:#2f6fd8;border-color:#5b93f0;}
-  #panel .stat{color:#8a93a8;font-size:11px;margin-top:6px;white-space:nowrap;}
-  #panel .stat b{color:#9fc3ff;font-weight:600;}
+  #panel .stat{color:#8a93a8;font-size:11px;margin-top:6px;}
   body.clean #panel{display:none;}
 </style>
 </head>
-<body>
-<canvas id="cv"></canvas>
+<body class="theme-dark no-lyrics">
+<div id="stage"><div id="lyrics"></div></div>
+<div id="hint">等待手机连接…</div>
 <div id="panel">
   <h3>IcarLyrics 演示台</h3>
   <div class="row">
     <button id="bPlay">播放</button>
     <button id="bLoop" class="on">循环 开</button>
-  </div>
-  <div class="row">
-    <button id="mTop" class="on">顶栏模式</button>
-    <button id="mWall">壁纸模式</button>
-  </div>
-  <div class="row">
     <button id="tDark" class="on">深色</button>
     <button id="tLight">浅色</button>
   </div>
@@ -43,51 +89,22 @@
 
 <script>
 'use strict';
-/* ============================================================
- * IcarLyrics 渲染前端 v1.0（全新实现）
- * 运行环境：iCAR 03 车机 Android 9 WebView / 任意现代浏览器
- * 接入方式：Android 端 WebView 加载本页，
- *   下发数据: IcarJS.onLyrics(json) / IcarJS.onProgress(json) / IcarJS.onCmd(json)
- *   回传事件: window.NativeBridge.post(jsonString)（Android 注入后可用）
- * 消息协议见 bluetooth-lyrics-plan.md
- * ============================================================ */
-
 /* ---------------- 状态 ---------------- */
 var S = {
-  mode: 'wallpaper',      // top 顶栏(单行) | wallpaper 壁纸(10行滚动,当前行正中)
-  theme: 'dark',          // dark | light
-  playing: false,
-  positionMs: 0,          // 最近一次上报进度
-  syncedAt: 0,            // 上报时刻（本机时钟），用于本地插值
-  durationMs: 0,
-  track: '', artist: '', source: '',
-  lines: [],              // [{t,end,txt,trans,words:[{s,e,txt}]}]
-  cur: -1,
-  switchAt: 0,            // 当前行切换时刻（淡入动画）
-  demo: false,
-  loop: true,
-  connected: false,       // BLE 手机端是否已连接（conn 消息更新）
-  connDevice: '',         // 已连接的设备名/地址
-  advState: '',           // 车机 BLE 广播状态（conn 消息更新）
-  rxFrag: 0,              // 车机端收到的歌词分片数（rxStats 更新）
-  rxFrame: 0,             // 车机端组装的完整歌词帧数
-  rxProg: 0,              // 车机端收到的进度包数
-  rxBrief: ''             // 最近歌词帧摘要
+  playing:false, positionMs:0, syncedAt:0, durationMs:0,
+  track:'', source:'',
+  lines:[],            /* [{t,txt,trans}] 行级同步（忽略逐字标签） */
+  cur:-1,
+  switchGeneration:0,  /* 换歌/重建代数，防止旧动画回调污染新 DOM */
+  connected:false, advState:'', rxFrag:0, rxFrame:0, rxProg:0, rxBrief:'',
+  demo:false, loop:true
 };
 
-var THEME = {
-  dark:  { text:'#FFFFFF', done:'#4D8DFF', sub:'rgba(255,255,255,.78)',
-           next:'rgba(255,255,255,.42)', shadow:'rgba(0,0,0,.85)' },
-  light: { text:'#1B2333', done:'#1D5FD6', sub:'rgba(24,32,50,.80)',
-           next:'rgba(24,32,50,.40)', shadow:'rgba(255,255,255,.95)' }
-};
-
-var FONT = '"MiSans","HarmonyOS Sans SC","Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
-
+var FONT = '"MiSans","HarmonyOS Sans SC","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
 function nowMs(){ return S.playing ? S.positionMs + (Date.now()-S.syncedAt) : S.positionMs; }
 
-/* ---------------- LRC 解析 ---------------- */
+/* ---------------- LRC 解析（行级） ---------------- */
 function parseTimeTag(s){
   var m = /^(\d+):(\d+(?:\.\d+)?)$/.exec(s);
   if (!m) return -1;
@@ -95,103 +112,75 @@ function parseTimeTag(s){
 }
 var RE_HEAD = /^\s*((?:\[\d+:\d+(?:\.\d+)?\])+)/;
 var RE_TAG  = /\[\d+:\d+(?:\.\d+)?\]/g;
-var RE_WORD = /<\d+:\d+(?:\.\d+)?>/g;
+var RE_INLINE = /<\d+:\d+(?:\.\d+)?>/g;
+var RE_CREDIT = /^(作词|作曲|编曲|制作人|混音|母带|录音|和声|监制|出品|发行|翻译|词|曲)\s*[：:]/i;
 
 function parseLrcText(text){
-  var rows = String(text||'').split(/\r\n|\n|\r/);
+  var rows = String(text||'').replace(/\r/g,'').split('\n');
   var out = [];
-  for (var i=0;i<rows.length;i++){
-    var row = rows[i];
-    if (!row) continue;
-    var head = RE_HEAD.exec(row);
-    if (!head) continue;
-    var tags = head[1].match(RE_TAG) || [];
-    var body = row.slice(head[1].length);
-    if (!body) continue;
-
-    var txt, words = null;
-    var wtags = body.match(RE_WORD);
-    if (wtags && wtags.length){
-      /* 增强格式：[mm:ss.xx]<t1>字<t2>字…（逐字卡拉OK时间轴） */
-      var parts = body.split(RE_WORD);
-      txt = parts.slice(1).join('');
-      if (txt && parts.length === wtags.length+1){
-        words = [];
-        for (var k=0;k<wtags.length;k++){
-          var t1 = parseTimeTag(wtags[k].slice(1,-1));
-          var t2 = (k+1<wtags.length) ? parseTimeTag(wtags[k+1].slice(1,-1)) : -1;
-          var seg = parts[k+1];
-          if (!seg || t1<0) { words = null; break; }
-          words.push({ s:t1, e:(t2<0?-1:t2), txt:seg });
-        }
-        if (words) txt = txt.trim();
-      }
-    } else {
-      txt = body.trim();
-    }
-    if (!txt) continue;
-    for (var j=0;j<tags.length;j++){
-      var t = parseTimeTag(tags[j].slice(1,-1));
-      if (t<0) continue;
-      out.push({ t:t, txt:txt, words: words?words.slice():null, trans:'' });
-    }
-  }
-  out.sort(function(a,b){ return a.t-b.t; });
-  for (var n=0;n<out.length;n++){
-    out[n].end = (n+1<out.length) ? out[n+1].t : out[n].t+5000;
-    buildWords(out[n]);
-  }
-  return out;
-}
-
-/* 无逐字时间轴时按字符均分整行时长 */
-function buildWords(line){
-  if (line.words && line.words.length){
-    for (var i=0;i<line.words.length;i++){
-      if (line.words[i].e < 0) line.words[i].e = line.end;
-    }
-    return;
-  }
-  var chars = line.txt.split('');
-  var n = chars.length, span = Math.max(300, line.end-line.t);
-  line.words = [];
-  for (var k=0;k<n;k++){
-    line.words.push({ s: line.t+span*k/n, e: line.t+span*(k+1)/n, txt: chars[k] });
-  }
-}
-
-/* 翻译行：按时间标签对齐 */
-function applyTrans(lines, tlyric){
-  if (!tlyric) return;
-  var map = {}, rows = String(tlyric).split(/\r\n|\n|\r/);
   for (var i=0;i<rows.length;i++){
     var head = RE_HEAD.exec(rows[i]);
     if (!head) continue;
-    var body = rows[i].slice(head[1].length).trim();
-    if (!body) continue;
+    /* 行级同步：保留行时间戳，剥离逐字 <mm:ss.xx> 元数据 */
+    var txt = rows[i].slice(head[1].length).replace(RE_INLINE,'').trim();
+    if (!txt || RE_CREDIT.test(txt)) continue;
     var tags = head[1].match(RE_TAG) || [];
     for (var j=0;j<tags.length;j++){
       var t = parseTimeTag(tags[j].slice(1,-1));
-      if (t>=0) map[t] = body;
+      if (t>=0) out.push({ t:t, txt:txt, trans:'' });
     }
   }
+  out.sort(function(a,b){ return a.t-b.t; });
+  var dedup = [];
+  for (var k=0;k<out.length;k++){
+    if (k && out[k].t===out[k-1].t && out[k].txt===out[k-1].txt) continue;
+    dedup.push(out[k]);
+  }
+  return dedup;
+}
+
+/* 翻译对齐：±300ms 容差最近邻，一对一 */
+function alignTrans(lines, tlyric){
+  if (!tlyric) return;
+  var rows = String(tlyric).replace(/\r/g,'').split('\n'), tr = [];
+  for (var i=0;i<rows.length;i++){
+    var head = RE_HEAD.exec(rows[i]);
+    if (!head) continue;
+    var body = rows[i].slice(head[1].length).replace(RE_INLINE,'').trim();
+    if (!body || RE_CREDIT.test(body)) continue;
+    var tags = head[1].match(RE_TAG) || [];
+    for (var j=0;j<tags.length;j++){
+      var t = parseTimeTag(tags[j].slice(1,-1));
+      if (t>=0) tr.push({ t:t, txt:body });
+    }
+  }
+  tr.sort(function(a,b){ return a.t-b.t; });
+  var used = {};
   for (var n=0;n<lines.length;n++){
-    lines[n].trans = map[lines[n].t] || '';
+    var best = -1, bestDiff = 301;
+    for (var m=0;m<tr.length;m++){
+      if (used[m]) continue;
+      var d = Math.abs(tr[m].t - lines[n].t);
+      if (d < bestDiff){ bestDiff = d; best = m; }
+    }
+    if (best >= 0){ lines[n].trans = tr[best].txt; used[best] = true; }
   }
 }
 
-/* ---------------- JS 桥（Android 下发入口） ---------------- */
+/* ---------------- JS 桥（Android 下发入口，协议与 v2.0 一致） ---------------- */
 function safeParse(json){ try { return JSON.parse(json); } catch(e){ return null; } }
 
 function handleLyrics(msg){
-  S.track  = msg.track  || '';
-  S.artist = msg.artist || '';
-  S.source = msg.source || '';
+  S.track = msg.track || '';
   if (msg.durationMs) S.durationMs = msg.durationMs;
   S.lines = parseLrcText(msg.lrc || '');
-  applyTrans(S.lines, msg.tlyric || '');
+  alignTrans(S.lines, msg.tlyric || '');
   S.cur = -1;
+  S.switchGeneration++;
   if (msg.resetProgress){ S.positionMs = 0; S.syncedAt = Date.now(); }
+  buildDom();
+  updateVisibility();
+  positionToCurrent(true);
   notify({ event:'lyricsLoaded', data:{ count:S.lines.length, track:S.track } });
 }
 
@@ -200,37 +189,36 @@ function handleProgress(msg){
   S.playing = !!msg.playing;
   S.syncedAt = Date.now();
   if (msg.durationMs) S.durationMs = msg.durationMs;
+  document.body.classList.toggle('paused', !S.playing);
 }
 
 function handleCmd(msg){
   if (msg.type === 'conn'){
-    /* BLE 连接/广播状态（车机原生转发） */
     if (typeof msg.advState === 'string') S.advState = msg.advState;
-    if (typeof msg.connected === 'boolean'){
-      S.connected = msg.connected;
-      S.connDevice = msg.device || '';
-    }
-    syncPanel();
+    if (typeof msg.connected === 'boolean') S.connected = msg.connected;
+    updateVisibility();
     return;
   }
   if (msg.action === 'rxStats'){
-    /* 车机端接收统计（断点诊断）：仅无歌词时更新显示 */
     if (typeof msg.frag === 'number') S.rxFrag = msg.frag;
     if (typeof msg.frame === 'number') S.rxFrame = msg.frame;
     if (typeof msg.prog === 'number') S.rxProg = msg.prog;
     if (typeof msg.brief === 'string') S.rxBrief = msg.brief;
+    updateVisibility();
     return;
   }
   var a = msg.action;
-  if (a === 'clear'){ S.lines = []; S.cur = -1; }
-  else if (a === 'setMode' && (msg.value==='top'||msg.value==='wallpaper')){ S.mode = msg.value; invalidateLayout(); }
-  else if (a === 'setTheme' && (msg.value==='dark'||msg.value==='light')) S.theme = msg.value;
+  if (a === 'clear'){ S.lines = []; S.cur = -1; S.switchGeneration++; buildDom(); updateVisibility(); }
+  else if (a === 'setTheme' && (msg.value==='dark'||msg.value==='light')){
+    document.body.classList.toggle('theme-dark', msg.value==='dark');
+    document.body.classList.toggle('theme-light', msg.value==='light');
+  }
   else if (a === 'ping'){ notify({ event:'pong', data:{ t:Date.now() } }); }
   syncPanel();
 }
 
 window.IcarJS = {
-  version: '1.0.0',
+  version: '2.1.0',
   onLyrics:   function(json){ var m=safeParse(json); if(m) handleLyrics(m); },
   onProgress: function(json){ var m=safeParse(json); if(m) handleProgress(m); },
   onCmd:      function(json){ var m=safeParse(json); if(m) handleCmd(m); }
@@ -242,314 +230,173 @@ function notify(obj){
   } else if (S.demo) { console.log('[IcarJS->]', obj); }
 }
 
-/* ---------------- Canvas 与布局 ---------------- */
-var cv = document.getElementById('cv');
-var ctx = cv.getContext('2d');
-var W = 0, H = 0;
+/* ---------------- DOM 构建 ---------------- */
+var stage, ly, hint;
 
-function resize(){
-  var dpr = window.devicePixelRatio || 1;
-  W = window.innerWidth; H = window.innerHeight;
-  cv.width = Math.max(1, Math.round(W*dpr));
-  cv.height = Math.max(1, Math.round(H*dpr));
-  cv.style.width = W+'px'; cv.style.height = H+'px';
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  invalidateLayout();
+function escapeHtml(v){
+  return String(v||'').replace(/[&<>"']/g, function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+  });
 }
 
-/** 清空行布局缓存（模式/尺寸变化时调用） */
-function invalidateLayout(){
-  for (var i=0;i<S.lines.length;i++) S.lines[i]._lay = null;
-}
-
-function fontSizeOf(mode){
-  return (mode==='top') ? clamp(H*0.058, 22, 46) : clamp(H*0.105, 40, 96);
-}
-
-function getLayout(line, mode){
-  line._lay = line._lay || {};
-  var c = line._lay[mode];
-  if (c) return c;
-  var fs = fontSizeOf(mode);
-  var font = 'bold '+Math.round(fs)+'px '+FONT;
-  ctx.font = font;
-  var maxW = (mode==='top') ? W*0.9 : W*0.86;
-  var tw = 0, i, g;
-  for (i=0;i<line.words.length;i++) tw += ctx.measureText(line.words[i].txt).width;
-  if (tw > maxW){
-    fs *= maxW/tw;
-    font = 'bold '+Math.round(fs)+'px '+FONT;
-    ctx.font = font;
-    tw = 0;
-    for (i=0;i<line.words.length;i++) tw += ctx.measureText(line.words[i].txt).width;
-  }
-  var xs = [], x = 0;
-  for (i=0;i<line.words.length;i++){
-    g = ctx.measureText(line.words[i].txt).width;
-    xs.push({ x:x, w:g }); x += g;
-  }
-  c = { fs:fs, font:font, xs:xs, total:x };
-  line._lay[mode] = c;
-  return c;
-}
-
-function sungWidth(line, now, lay){
-  var w = 0, i, g, seg;
-  for (i=0;i<line.words.length;i++){
-    g = lay.xs[i]; seg = line.words[i];
-    if (now >= seg.e){ w = g.x + g.w; }
-    else if (now > seg.s){ w = g.x + g.w*((now-seg.s)/Math.max(1,seg.e-seg.s)); break; }
-    else break;
-  }
-  return w;
-}
-
-function currentWordIdx(line, now){
-  for (var i=0;i<line.words.length;i++){
-    if (now >= line.words[i].s && now < line.words[i].e) return i;
-  }
-  return -1;
-}
-
-/* ---------------- 绘制 ---------------- */
-function findLine(t){
-  var idx = -1;
+function buildDom(){
+  var hasTrans = false, html = '';
   for (var i=0;i<S.lines.length;i++){
-    if (S.lines[i].t <= t) idx = i; else break;
+    var ln = S.lines[i];
+    if (ln.trans) hasTrans = true;
+    html += '<div class="line" data-i="'+i+'"><div class="orig">'+escapeHtml(ln.txt)+'</div>'
+          + (ln.trans ? '<div class="trans">'+escapeHtml(ln.trans)+'</div>' : '') + '</div>';
+  }
+  ly.innerHTML = html;
+  document.body.classList.toggle('has-trans', hasTrans);
+  layoutMetrics();
+}
+
+function updateVisibility(){
+  var has = S.lines.length > 0;
+  document.body.classList.toggle('no-lyrics', !has);
+  if (!has){
+    var msg;
+    if (S.connected) msg = '已连接手机 · 等待放歌…';
+    else if (S.advState) msg = S.advState;
+    else msg = '等待手机连接…';
+    var sub = '';
+    if (S.rxFrag > 0 || S.rxProg > 0 || S.rxFrame > 0){
+      sub = '<div class="sub">分片 '+S.rxFrag+' · 组帧 '+S.rxFrame+' · 进度 '+S.rxProg
+          + (S.rxBrief ? ' · ' + S.rxBrief : '') + '</div>';
+    }
+    hint.innerHTML = escapeHtml(msg) + sub;
+  }
+}
+
+/* ---------------- 布局度量（resize/换行时一次性设置 CSS 变量） ---------------- */
+function layoutMetrics(){
+  var h = window.innerHeight;
+  var fs = clamp(h*0.042, 24, 42);
+  var rs = document.documentElement.style;
+  rs.setProperty('--fs', Math.round(fs)+'px');
+  rs.setProperty('--fs-active', Math.round(fs*1.34)+'px');
+  rs.setProperty('--fs-trans', Math.round(fs*0.55)+'px');
+  rs.setProperty('--pad', Math.round(fs*0.38)+'px');
+  /* 行字号变化影响行高，hint 字号随之 */
+  hint.style.fontSize = Math.round(clamp(h*0.024, 14, 20))+'px';
+}
+
+/* ---------------- 当前行定位与切换动画 ---------------- */
+function findLine(t){
+  var idx = -1, lo = 0, hi = S.lines.length-1;
+  while (lo <= hi){
+    var mid = (lo+hi) >> 1;
+    if (S.lines[mid].t <= t + 90){ idx = mid; lo = mid+1; } else hi = mid-1;
   }
   return idx;
 }
 
-function drawTextFit(txt, cx, y, font, color, maxW){
-  ctx.font = font;
-  ctx.fillStyle = color;
-  var tw = ctx.measureText(txt).width;
-  if (tw > maxW && tw > 0){
-    var s = maxW/tw;
-    ctx.save();
-    ctx.translate(cx, y); ctx.scale(s, s);
-    ctx.fillText(txt, 0, 0);
-    ctx.restore();
-  } else {
-    ctx.fillText(txt, cx, y);
+function applyStates(prev, idx){
+  var nodes = ly.children;
+  var lo = Math.max(0, Math.min(prev, idx)-1);
+  var hi = Math.min(nodes.length-1, Math.max(prev, idx)+1);
+  for (var i=0;i<nodes.length;i++){
+    if (i<lo || i>hi) continue;   /* 窗口外的行状态已正确，免触碰 */
+    var n = nodes[i];
+    n.classList.toggle('active', i===idx);
+    n.classList.toggle('near', i!==idx && Math.abs(i-idx)===1);
+    n.classList.toggle('past', i!==idx && i<idx);
   }
 }
 
-function paintKaraoke(line, now, x0, y, lay, colors){
-  ctx.font = lay.font;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  /* 未唱底色整行 */
-  ctx.fillStyle = colors.text;
-  ctx.fillText(line.txt, x0, y);
-  /* 已唱高亮（矩形裁切） */
-  var sw = sungWidth(line, now, lay);
-  if (sw > 0){
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x0-4, 0, sw+8, H);
-    ctx.clip();
-    ctx.fillStyle = colors.done;
-    ctx.fillText(line.txt, x0, y);
-    ctx.restore();
-  }
-  /* 当前字微发光 */
-  var gi = currentWordIdx(line, now);
-  if (gi >= 0 && S.playing){
-    var g = lay.xs[gi];
-    ctx.save();
-    ctx.shadowColor = colors.done;
-    ctx.shadowBlur = 14;
-    ctx.fillStyle = colors.done;
-    ctx.fillText(line.words[gi].txt, x0+g.x, y);
-    ctx.restore();
-  }
-  ctx.textAlign = 'center';
+function setLyricsTranslate(y){
+  ly.style.transform = 'translate3d(0,'+y+'px,0)';
 }
 
-function drawTop(line, now, alpha){
-  var th = THEME[S.theme];
-  var lay = getLayout(line, 'top');
-  var x0 = (W - lay.total)/2;
-  var y = Math.max(lay.fs+10, H*0.055 + lay.fs);
-  ctx.globalAlpha = alpha;
-  ctx.shadowColor = th.shadow; ctx.shadowBlur = 6;
-  paintKaraoke(line, now, x0, y, lay, th);
-  ctx.shadowBlur = 0;
-  if (line.trans){
-    drawTextFit(line.trans, W/2, y + lay.fs*0.95,
-      Math.round(lay.fs*0.6)+'px '+FONT, th.sub, W*0.82);
+/** 单行 FLIP：记录当前位置 → 应用新类 → 从旧位置 transform 补间到新布局 */
+function flipLines(nodes, indices, before){
+  var moved = [];
+  for (var k=0;k<indices.length;k++){
+    var i = indices[k];
+    if (i<0 || i>=nodes.length) continue;
+    var b = before[i], node = nodes[i];
+    if (!b) continue;
+    var a = node.getBoundingClientRect();
+    var dy = b.top - a.top;
+    var scale = (a.height>0 && b.height>0) ? (b.height/a.height) : 1;
+    if (Math.abs(dy)<0.5 && Math.abs(scale-1)<0.004) continue;
+    node.style.transition = 'none';
+    node.style.transformOrigin = '50% 0';
+    node.style.transform = 'translate3d(0,'+dy.toFixed(2)+'px,0)'
+        + (Math.abs(scale-1)>=0.004 ? ' scale('+scale.toFixed(4)+')' : '');
+    moved.push(node);
   }
-  ctx.globalAlpha = 1;
-}
-
-/** 绘制单行（非当前行用；mode 决定字号基准） */
-function drawRollLine(line, now, x, y, fs, color, mode){
-  var font = 'bold '+Math.round(fs)+'px '+FONT;
-  ctx.font = font;
-  ctx.textAlign = 'center';                 /* 上下行与当前行统一居中对齐 */
-  var tw = ctx.measureText(line.txt).width;
-  var maxW = (mode==='top') ? W*0.9 : W*0.86;
-  if (tw > maxW && tw > 0){
-    var s = maxW/tw;
-    ctx.save();
-    ctx.translate(x, y); ctx.scale(s, s);
-    ctx.fillStyle = color;
-    ctx.fillText(line.txt, 0, 0);
-    ctx.restore();
-  } else {
-    ctx.fillStyle = color;
-    ctx.fillText(line.txt, x, y);
-  }
-}
-
-function drawTop(line, now, alpha){
-  var th = THEME[S.theme];
-  var lay = getLayout(line, 'top');
-  var x0 = (W - lay.total)/2;
-  var y = Math.max(lay.fs+10, H*0.055 + lay.fs);
-  ctx.globalAlpha = alpha;
-  ctx.shadowColor = th.shadow; ctx.shadowBlur = 6;
-  paintKaraoke(line, now, x0, y, lay, th);
-  ctx.shadowBlur = 0;
-  if (line.trans){
-    drawTextFit(line.trans, W/2, y + lay.fs*0.95,
-      Math.round(lay.fs*0.6)+'px '+FONT, th.sub, W*0.82);
-  }
-  ctx.globalAlpha = 1;
-}
-
-/**
- * 壁纸模式：10 行歌谱滚动（当前行 + 上4下5），当前行垂直居中。
- * 当前行大号高亮 + 逐字卡拉OK变色；远近行渐隐，随进度平滑滚动。
- */
-function drawWallpaper(line, now, idx, alpha){
-  var th = THEME[S.theme];
-  var up = 4, down = 5;                       /* 共 10 行，当前行正中 */
-  var fs = fontSizeOf('wallpaper');
-  var subFs = Math.round(fs*0.5);             /* 非当前行字号 */
-  var hasTrans = !!line.trans;                /* 当前行有翻译：额外占 0.6 行位 */
-  var totalRows = up + down + 1 + (hasTrans ? 0.6 : 0);
-  var rowH = Math.max(fs*0.9, subFs*1.42);    /* 行距：容纳大号当前行 */
-  rowH = Math.min(rowH, H*0.92/totalRows);    /* 屏幕不够时整体收缩 */
-  var y0 = H*0.5 - rowH*0.5;                  /* 当前行基线 = 屏幕垂直中心 */
-  var transShift = hasTrans ? rowH*0.6 : 0;   /* 翻译行位，下方歌词整体下移 */
-
-  /* 当前行：大号 + 逐字卡拉OK + 微发光 */
-  var lay = getLayout(line, 'wallpaper');
-  var x0 = (W - lay.total)/2;
-  ctx.globalAlpha = alpha;
-  ctx.shadowColor = th.shadow; ctx.shadowBlur = 10;
-  paintKaraoke(line, now, x0, y0, lay, th);
-  ctx.shadowBlur = 0;
-  /* 当前行翻译（若有）：紧贴当前行下方 */
-  if (hasTrans){
-    drawTextFit(line.trans, W/2, y0 + fs*0.78,
-      Math.round(fs*0.46)+'px '+FONT, th.sub, W*0.8);
-  }
-
-  /* 远近渐隐系数：第 1~5 行位 alpha 递减 */
-  var FADE = [1, .84, .68, .54, .42];
-
-  /* 上方 4 行（已唱，暗 + 越远越淡） */
-  for (var u=1; u<=up; u++){
-    var li = idx-u;
-    if (li < 0) continue;
-    var yy = y0 - rowH*u;
-    if (yy < subFs*0.5) continue;             /* 越出屏顶不画 */
-    ctx.globalAlpha = alpha * FADE[u];
-    drawRollLine(S.lines[li], now, W/2, yy, subFs, th.next, 'wallpaper');
-  }
-  /* 下方 5 行（未唱，稍亮 + 渐隐，有翻译时整体下移让位） */
-  for (var d=1; d<=down; d++){
-    var di = idx+d;
-    if (di >= S.lines.length) continue;
-    var dy = y0 + rowH*d + transShift;
-    if (dy > H - subFs*0.2) continue;         /* 越出屏底不画 */
-    ctx.globalAlpha = alpha * FADE[Math.min(d, FADE.length-1)];
-    drawRollLine(S.lines[di], now, W/2, dy, subFs, th.sub, 'wallpaper');
-  }
-  ctx.globalAlpha = 1;
-}
-
-function draw(){
-  ctx.clearRect(0,0,W,H);
-  if (!S.lines.length) {
-    /* 无歌词数据：显示等待提示（半透明小字），证明悬浮窗活着且链路在等数据 */
-    if (!S.demo){
-      var fs = Math.round(clamp(H*0.03, 16, 30));
-      ctx.font = fs+'px '+FONT;
-      ctx.textAlign = 'center';
-      ctx.fillStyle = S.theme==='dark' ? 'rgba(255,255,255,.45)' : 'rgba(27,35,51,.45)';
-      var msg;
-      if (S.connected){
-        msg = '已连接手机 · 等待放歌…';
-      } else if (S.advState && S.advState !== '广播中'){
-        msg = 'BLE ' + S.advState + ' · 请检查车机蓝牙';
-      } else if (S.advState === '广播中'){
-        msg = '广播中 · 等待手机连接…';
-      } else {
-        msg = '等待手机连接…';
-      }
-      ctx.fillText(msg, W/2, H*0.055 + fs);
-      /* 接收统计（断点诊断）：车机端到底收到多少分片/帧/进度包 */
-      if (S.rxFrag > 0 || S.rxProg > 0 || S.rxFrame > 0){
-        var small = Math.round(fs*0.6);
-        ctx.font = small+'px '+FONT;
-        ctx.fillStyle = S.theme==='dark' ? 'rgba(255,255,255,.30)' : 'rgba(27,35,51,.30)';
-        ctx.fillText('分片 '+S.rxFrag+' · 组帧 '+S.rxFrame+' · 进度 '+S.rxProg
-          + (S.rxBrief ? ' · ' + S.rxBrief : ''), W/2, H*0.055 + fs*2.1);
-      }
+  if (!moved.length) return;
+  ly.offsetHeight;   /* 强制 reflow，锁定起始 transform */
+  var gen = S.switchGeneration;
+  requestAnimationFrame(function(){
+    if (gen !== S.switchGeneration) return;
+    for (var m=0;m<moved.length;m++){
+      moved[m].style.transition = '';
+      moved[m].style.transform = '';
     }
+  });
+}
+
+/** 把当前行滚到屏幕垂直中心；instant=true 跳过动画（换歌/seek） */
+function positionToCurrent(instant){
+  if (S.cur < 0) return;
+  var nodes = ly.children;
+  var node = nodes[S.cur];
+  if (!node) return;
+  var target = stage.clientHeight*0.5 - node.offsetTop - node.offsetHeight*0.5;
+  if (instant){
+    ly.classList.add('no-anim');
+    setLyricsTranslate(target);
+    ly.offsetHeight;
+    ly.classList.remove('no-anim');
     return;
   }
-  var t = nowMs();
-  var idx = findLine(t);
-  if (idx !== S.cur){ S.cur = idx; S.switchAt = Date.now(); }
-  if (idx < 0) return;
-  var line = S.lines[idx];
-  var alpha = clamp((Date.now()-S.switchAt)/220, 0, 1);
-  if (!S.playing) alpha = 0.5 + 0.22*Math.sin(Date.now()/420);  /* 暂停呼吸 */
-  ctx.textAlign = 'center';
-  if (S.mode === 'top') drawTop(line, t, alpha);
-  else drawWallpaper(line, t, idx, alpha);
+  setLyricsTranslate(target);
 }
 
-/* ---------------- 主循环 ---------------- */
-function tick(){
-  var t = nowMs();
-  if (S.demo && S.playing && S.durationMs && t >= S.durationMs){
-    if (S.loop){ S.positionMs = 0; S.syncedAt = Date.now(); S.cur = -1; }
-    else { S.playing = false; S.positionMs = S.durationMs; syncPanel(); }
+function switchTo(idx){
+  var prev = S.cur;
+  S.cur = idx;
+  var nodes = ly.children;
+  var bigJump = prev < 0 || Math.abs(idx-prev) > 1;
+  if (bigJump){
+    applyStates(prev, idx);
+    positionToCurrent(true);
+    return;
   }
-  draw();
+  /* 相邻切行：对字号变化的两行（旧 active / 新 active）做 FLIP */
+  var before = {};
+  [prev, idx].forEach(function(i){
+    if (i>=0 && i<nodes.length) before[i] = nodes[i].getBoundingClientRect();
+  });
+  applyStates(prev, idx);
+  positionToCurrent(false);
+  flipLines(nodes, [prev, idx], before);
+}
+
+/* ---------------- 主循环（轻量：每帧仅二分比较，不触发布局/绘制） ---------------- */
+function tick(){
+  if (S.lines.length){
+    var t = nowMs();
+    var idx = findLine(t);
+    if (idx < 0) idx = 0;   /* 前奏阶段（未到第一行）：首行高亮定位，避免整屏空白 */
+    if (idx !== S.cur) switchTo(idx);
+  }
   requestAnimationFrame(tick);
 }
 
 /* ---------------- 演示模式（浏览器 / 无 NativeBridge） ---------------- */
 var DEMO_LRC =
-'[00:01.20]<00:01.20>星<00:01.70>河<00:02.20>之<00:02.70>外\n' +
-'[00:05.00]<00:05.00>夜<00:05.50>色<00:06.00>漫<00:06.50>过<00:07.00>车<00:07.50>窗\n' +
-'[00:09.50]<00:09.50>路<00:10.00>灯<00:10.50>连<00:11.00>成<00:11.50>光<00:12.00>带\n' +
-'[00:14.50]<00:14.50>载<00:15.00>着<00:15.50>我<00:16.00>们<00:16.50>流<00:17.00>浪\n' +
-'[00:19.50]<00:19.50>风<00:20.00>穿<00:20.50>过<00:21.00>指<00:21.50>缝\n' +
-'[00:23.50]<00:23.50>吹<00:24.00>散<00:24.50>了<00:25.00>彷<00:25.50>徨\n';
+'[00:01.20]星河之外\n[00:05.00]夜色漫过车窗\n[00:09.50]路灯连成光带\n' +
+'[00:14.50]载着我们流浪\n[00:19.50]风穿过指缝\n[00:23.50]吹散了彷徨\n' +
+'[00:27.50]银河落在远方\n[00:31.50]像你眼睛发亮\n[00:35.50]夜风轻轻唱\n[00:39.50]伴我们去流浪\n';
 var DEMO_TLYRIC =
-'[00:01.20]Beyond the starry river (demo)\n' +
-'[00:05.00]Night floods the car window\n' +
-'[00:09.50]Streetlights weave a ribbon of light\n' +
-'[00:14.50]Carrying us adrift\n' +
-'[00:19.50]Wind slips through fingers\n' +
-'[00:23.50]Blowing hesitation away\n';
+'[00:01.20]Beyond the starry river\n[00:05.00]Night floods the car window\n' +
+'[00:09.50]Streetlights weave a ribbon of light\n[00:14.50]Carrying us adrift\n' +
+'[00:19.50]Wind slips through fingers\n[00:23.50]Blowing hesitation away\n';
 
-function loadDemo(){
-  handleLyrics({ track:'星河之外', artist:'IcarLyrics 演示',
-    durationMs:28000, lrc:DEMO_LRC, tlyric:DEMO_TLYRIC, source:'demo', resetProgress:true });
-  S.playing = true; S.syncedAt = Date.now();
-  syncPanel();
-}
-
-/* ---------------- 演示面板 ---------------- */
 function $(id){ return document.getElementById(id); }
 function syncPanel(){
   if (!$('bPlay')) return;
@@ -557,49 +404,49 @@ function syncPanel(){
   $('bPlay').className = S.playing ? 'on' : '';
   $('bLoop').textContent = S.loop ? '循环 开' : '循环 关';
   $('bLoop').className = S.loop ? 'on' : '';
-  $('mTop').className  = (S.mode==='top') ? 'on' : '';
-  $('mWall').className = (S.mode==='wallpaper') ? 'on' : '';
-  $('tDark').className  = (S.theme==='dark') ? 'on' : '';
-  $('tLight').className = (S.theme==='light') ? 'on' : '';
 }
 function bindPanel(){
   $('bPlay').onclick = function(){
     S.playing = !S.playing;
-    if (S.playing) S.syncedAt = Date.now();
-    else S.positionMs = nowMs();
+    if (S.playing) S.syncedAt = Date.now(); else S.positionMs = nowMs();
+    document.body.classList.toggle('paused', !S.playing);
     syncPanel();
   };
   $('bLoop').onclick = function(){ S.loop = !S.loop; syncPanel(); };
-  $('mTop').onclick  = function(){ S.mode='top'; syncPanel(); };
-  $('mWall').onclick = function(){ S.mode='wallpaper'; syncPanel(); };
-  $('tDark').onclick  = function(){ S.theme='dark'; syncPanel(); };
-  $('tLight').onclick = function(){ S.theme='light'; syncPanel(); };
+  $('tDark').onclick = function(){ handleCmd({action:'setTheme',value:'dark'}); };
+  $('tLight').onclick = function(){ handleCmd({action:'setTheme',value:'light'}); };
   setInterval(function(){
     var s = S.playing ? nowMs() : S.positionMs;
-    var sec = Math.floor(s/1000);
-    var mm = Math.floor(sec/60), ss = ('0'+(sec%60)).slice(-2);
-    $('stat').innerHTML = '桥: <b>演示模式</b> · ' + mm+':'+ss +
-      ' · ' + (S.lines.length ? S.lines.length+' 行' : '无歌词');
+    var mm = Math.floor(s/60000), ss = ('0'+Math.floor(s/1000)%60).slice(-2);
+    $('stat').innerHTML = '桥: <b>演示模式</b> · '+mm+':'+ss
+      + ' · ' + (S.lines.length ? S.lines.length+' 行' : '无歌词');
   }, 500);
+}
+function loadDemo(){
+  handleLyrics({ track:'星河之外', durationMs:45000, lrc:DEMO_LRC, tlyric:DEMO_TLYRIC,
+    source:'demo', resetProgress:true });
+  S.playing = true; S.syncedAt = Date.now();
+  document.body.classList.remove('paused');
+  syncPanel();
 }
 
 /* ---------------- 启动 ---------------- */
 function boot(){
+  stage = $('stage'); ly = $('lyrics'); hint = $('hint');
   S.demo = (typeof window.NativeBridge === 'undefined');
   if (S.demo){
-    document.body.className = '';
+    document.body.classList.remove('clean');
     bindPanel();
     loadDemo();
   } else {
-    document.body.className = 'clean';   /* 车机正式运行：隐藏演示面板 */
+    document.body.classList.add('clean');
   }
-  resize();
+  layoutMetrics();
   requestAnimationFrame(tick);
-  if (!S.demo) notify({ event:'ready', data:{ version:'1.0.0' } });
+  if (!S.demo) notify({ event:'ready', data:{ version:'2.1.0' } });
 }
-
-window.addEventListener('resize', function(){ resize(); });
-window.addEventListener('orientationchange', function(){ setTimeout(resize,200); });
+window.addEventListener('resize', function(){ layoutMetrics(); positionToCurrent(true); });
+window.addEventListener('orientationchange', function(){ setTimeout(function(){ layoutMetrics(); positionToCurrent(true); },200); });
 boot();
 </script>
 </body>
