@@ -4,7 +4,10 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
@@ -48,23 +51,22 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     static PlaybackService instance() { return instance; }
 
-    /** 主界面选择设备入口：服务运行中直接生效，否则仅持久化等待服务启动 */
-    static void remoteSelectDevice(String address) {
-        PlaybackService svc = instance;
-        if (svc != null) {
-            svc.selectDevice(address);
-        } else {
-            android.content.Context ctx = IcarPhoneApp.get();
-            if (ctx != null) {
-                ctx.getSharedPreferences("icarlyrics_phone", MODE_PRIVATE)
-                        .edit().putString("target_device", address).apply();
-            }
+    /** 读取本机蓝牙 MAC（车机按此直连手机）。 */
+    static String getOwnMac() {
+        try {
+            Context ctx = IcarPhoneApp.get();
+            if (ctx == null) return null;
+            BluetoothManager bm = (BluetoothManager) ctx.getSystemService(Context.BLUETOOTH_SERVICE);
+            BluetoothAdapter a = (bm == null) ? null : bm.getAdapter();
+            return (a == null || a.getAddress() == null) ? null : a.getAddress();
+        } catch (Exception e) {
+            return null;
         }
     }
 
     /* 注意：ble 必须在 onCreate() 中创建（Service 构造函数中 Context 尚未 attach，
-     * getSharedPreferences 会抛 NPE），因此不能在这里用 new BleClient(this, ...) 初始化 */
-    private BleClient ble;
+     * getSharedPreferences 会抛 NPE），因此不能在这里用 new BlePeripheral(this, ...) 初始化 */
+    private BlePeripheral ble;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final LyricsFetcher fetcher = new LyricsFetcher();
 
@@ -104,7 +106,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         running = true;
         try {
             /* 必须在 onCreate() 中创建：此时 Context 已 attach，可安全访问 SharedPreferences */
-            ble = new BleClient(this, this::onBleState);
+            ble = new BlePeripheral(this, this::onBleState);
         } catch (Exception e) {
             IcarPhoneApp.saveCrash(Thread.currentThread(), e);
             stopSelf(); /* 核心组件初始化失败，直接停止，避免后续 NPE */
@@ -116,19 +118,15 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             /* 通知通道/前台通知异常不应导致服务崩溃 */
             IcarPhoneApp.saveCrash(Thread.currentThread(), e);
         }
-        mon.bleState = "未连接";
+        mon.bleState = "未启动";
         NotificationListener.setCallback(this);
         startMediaMonitor();
         main.post(() -> {
             try {
-                if (ble.getSelectedAddressText() == null) {
-                    updateNotification("请先在主界面选择车机");
-                } else {
-                    ble.connect();
-                }
+                ble.start();   /* GATT 服务端就绪，等车机按 MAC 直连 */
             } catch (Exception e) {
                 IcarPhoneApp.saveCrash(Thread.currentThread(), e);
-                updateNotification("连接异常: " + e.getMessage());
+                updateNotification("启动异常: " + e.getMessage());
             }
         });
     }
@@ -140,7 +138,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         NotificationListener.setCallback(null);
         stopMediaPolling();
         stopProgressTask();
-        if (ble != null) ble.disconnect();
+        if (ble != null) ble.stop();
         /* 重置监控快照，避免残留旧状态 */
         mon.track = "";
         mon.artist = "";
@@ -459,22 +457,12 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         }
     }
 
-    /* ---------------- 设备选择 ---------------- */
+    /* ---------------- 设备信息（v2.0 角色对调：车机连手机，无需选设备） ---------------- */
 
-    /** 供主界面调：列出可连接设备（已配对 + 扫描发现） */
-    void scanDevices(BleClient.DevicesCallback cb) {
-        ble.scanForDevices(cb);
-    }
-
-    /** 供主界面调：选择某个设备并连接（记住默认，后续默认直连） */
-    void selectDevice(String address) {
-        ble.connectTo(address);
-    }
-
-    /** 供主界面调：清除已选设备 */
-    void clearDevice() {
-        ble.clearSelectedDevice();
-        updateNotification("未选择车机");
+    /** 本机蓝牙 MAC 文本（车机配置用） */
+    String ownMacText() {
+        String mac = getOwnMac();
+        return (mac == null) ? "未知（检查蓝牙是否开启）" : mac;
     }
 
     /** 同步 BLE 写入统计到监控快照（监控台每秒调用，v1.6） */
@@ -485,8 +473,6 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         mon.writeAck = s.ackCount;
         mon.writeFail = s.failCount;
     }
-
-    String getSelectedDeviceName() { return ble.getSelectedName(); }
 
     private void onBleState(String state, String detail) {
         if ("connected".equals(state)) {

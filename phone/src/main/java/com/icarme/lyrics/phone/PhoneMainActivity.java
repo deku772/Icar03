@@ -63,8 +63,8 @@ public class PhoneMainActivity extends Activity {
         root.addView(btnPerms);
 
         btnDevice = new Button(this);
-        btnDevice.setText("2. 选择车机");
-        btnDevice.setOnClickListener(v -> pickDevice());
+        btnDevice.setText("2. 查看本机 MAC（车机配置用）");
+        btnDevice.setOnClickListener(v -> showOwnMac());
         root.addView(btnDevice);
 
         btnService = new Button(this);
@@ -73,11 +73,10 @@ public class PhoneMainActivity extends Activity {
         root.addView(btnService);
 
         TextView help = new TextView(this);
-        help.setText("使用说明：\n\n"
-                + "1) 手机蓝牙连接车机（系统设置里配对）\n"
-                + "2) 授权（蓝牙/定位/通知使用权）\n"
-                + "3) 点「选择车机」选中车机（只需一次）\n"
-                + "4) 启动推送服务 → 放歌 → 车机悬浮窗出词\n\n"
+        help.setText("使用说明（v2.0 角色对调：车机主动连手机）\n\n"
+                + "1) 授权（蓝牙/通知使用权）\n"
+                + "2) 在车机端配置本机 MAC（或 ADB：am broadcast -a com.icarme.lyrics.SET_PHONE --es mac <本机MAC>）\n"
+                + "3) 启动推送服务 → 放歌 → 车机悬浮窗出词\n\n"
                 + "链路诊断看上方监控：媒体→取词→推送→BLE\n"
                 + "哪一步断了就查哪一步。");
         help.setTextSize(13);
@@ -117,19 +116,8 @@ public class PhoneMainActivity extends Activity {
                 getContentResolver(), "enabled_notification_listeners");
         boolean nl = enabled != null && enabled.contains(getPackageName());
 
-        String dev = getSharedPreferences("icarlyrics_phone", MODE_PRIVATE)
-                .getString("target_device", null);
-        String devName = null;
-        if (dev != null) {
-            try {
-                android.bluetooth.BluetoothManager bm =
-                        (android.bluetooth.BluetoothManager) getSystemService(BLUETOOTH_SERVICE);
-                android.bluetooth.BluetoothDevice d = bm.getAdapter().getRemoteDevice(dev);
-                devName = d.getName() == null ? dev : d.getName();
-            } catch (Exception e) {
-                devName = dev;
-            }
-        }
+        String dev = PlaybackService.getOwnMac();
+        String devName = dev;
 
         String crash = IcarPhoneApp.readCrash();
         PlaybackService.Monitor m = PlaybackService.mon;
@@ -166,7 +154,7 @@ public class PhoneMainActivity extends Activity {
         tvLrc.setTextColor(pv.isEmpty() ? 0xFF8A93A8 : 0xFF1B2333);
 
         btnService.setText(PlaybackService.running ? "停止推送服务" : "3. 启动推送服务");
-        btnDevice.setText(devName == null ? "2. 选择车机" : "已选车机: " + devName);
+        btnDevice.setText(devName == null ? "2. 查看本机 MAC（车机配置用）" : "本机 MAC: " + devName);
     }
 
     private static String firstLine(String s) {
@@ -174,35 +162,16 @@ public class PhoneMainActivity extends Activity {
         return i > 0 ? s.substring(0, i) : s;
     }
 
-    /* ---------------- 选择车机 ---------------- */
+    /* ---------------- 本机 MAC（车机按此直连） ---------------- */
 
-    private void pickDevice() {
-        new BleClient(this, (s, d) -> {}).scanForDevices(devices ->
-                ui.post(() -> showDeviceDialog(devices)));
-    }
-
-    private void showDeviceDialog(List<BleClient.DeviceInfo> devices) {
-        if (devices.isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("未发现设备")
-                    .setMessage("请确认：1) 蓝牙已开启 2) 车机已开机并运行 IcarLyrics 3) 手机已与车机配对。\n\n然后重试。")
-                    .setPositiveButton("好", null)
-                    .show();
-            return;
-        }
-        String[] names = new String[devices.size()];
-        for (int i = 0; i < devices.size(); i++) {
-            BleClient.DeviceInfo di = devices.get(i);
-            names[i] = di.toString() + (di.bonded ? "  [已配对]" : "");
-        }
+    private void showOwnMac() {
+        String mac = PlaybackService.getOwnMac();
         new AlertDialog.Builder(this)
-                .setTitle("选择车机（只需一次，以后默认连接）")
-                .setItems(names, (d, which) -> {
-                    BleClient.DeviceInfo sel = devices.get(which);
-                    PlaybackService.remoteSelectDevice(sel.address);
-                    refreshStatus();
-                })
-                .setNegativeButton("取消", null)
+                .setTitle("本机蓝牙 MAC")
+                .setMessage((mac == null ? "未读取到（请先开启蓝牙）" : mac)
+                        + "\n\n车机端配置命令（ADB）：\n"
+                        + "am broadcast -a com.icarme.lyrics.SET_PHONE --es mac " + (mac == null ? "<本机MAC>" : mac))
+                .setPositiveButton("好", null)
                 .show();
     }
 
