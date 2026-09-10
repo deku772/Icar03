@@ -38,6 +38,9 @@ jobs:
           mkdir -p out
           cp app/build/outputs/apk/debug/app-debug.apk "out/IcarLyrics-Car-${GITHUB_REF_NAME:-manual}.apk"
           cp phone/build/outputs/apk/debug/phone-debug.apk "out/IcarLyrics-Phone-${GITHUB_REF_NAME:-manual}.apk"
+          # 稳定文件名：车机二维码固定指向 latest/download/IcarLyrics-Phone.apk
+          cp app/build/outputs/apk/debug/app-debug.apk "out/IcarLyrics-Car.apk"
+          cp phone/build/outputs/apk/debug/phone-debug.apk "out/IcarLyrics-Phone.apk"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2

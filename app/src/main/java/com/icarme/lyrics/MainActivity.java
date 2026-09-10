@@ -110,6 +110,10 @@ public class MainActivity extends Activity {
         root.addView(buildHelpCard());
         setContentView(root);
 
+        /* 启动时静默检查 GitHub Release 更新 */
+        ui.postDelayed(() -> UpdateChecker.checkAndPrompt(this,
+                BuildConfig.VERSION_NAME, true), 2500);
+
         /* 周期刷新状态行（服务启动/断连重试等变化即时可见） */
         ui.postDelayed(new Runnable() {
             @Override public void run() {
@@ -330,10 +334,26 @@ public class MainActivity extends Activity {
 
         Button btnInstall = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnInstall.setText("2 · 热点扫码装手机端");
+        btnInstall.setText("2 · 扫码下载手机端");
         styleButton(btnInstall, R.drawable.btn_primary, 0xFFFFFFFF, true);
         btnInstall.setOnClickListener(v -> showInstallQr());
         box.addView(btnInstall);
+
+        Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnUpd.setText("检查更新（GitHub）");
+        btnUpd.setBackgroundResource(R.drawable.btn_ghost);
+        btnUpd.setTextColor(C_PRIMARY);
+        btnUpd.setTextSize(14);
+        btnUpd.setAllCaps(false);
+        btnUpd.setStateListAnimator(null);
+        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        ulp.topMargin = dp(8);
+        btnUpd.setLayoutParams(ulp);
+        btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
+                BuildConfig.VERSION_NAME, false));
+        box.addView(btnUpd);
 
         btnService = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
@@ -639,156 +659,60 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * 手机扫 GitHub Release 稳定下载地址（手机有网即可，车机无需开热点）。
+     * CI 会额外上传无版本号的 IcarLyrics-Phone.apk。
+     */
+    private static final String PHONE_APK_URL =
+            "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Phone.apk";
+    private static final String RELEASE_PAGE =
+            "https://github.com/deku772/Icar03/releases/latest";
+
     private void showInstallQr() {
-        byte[] apk = loadPhoneApk();
-        if (apk == null) {
-            showHint("未内嵌手机端 APK，请用完整包构建（会自动打包 phone-debug.apk）");
-            return;
-        }
-        if (!apkServer.start(apk)) {
-            showHint("本地下载服务启动失败（端口 " + ApkHttpServer.PORT + " 被占用？）");
-            return;
-        }
-
-        /* 1) 读系统 SoftAP；2) 读不到则用可写 API 生成并写入自己的 SSID/密码；3) 再不行开设置页 */
-        HotspotInfo ap = HotspotInfo.read(this);
-        if (!ap.valid()) {
-            HotspotInfo gen = HotspotInfo.generateAndSetAp(this);
-            if (gen != null && gen.valid()) {
-                ap = gen;
-                showHint("已写入热点 " + ap.ssid + "，请用手机扫码连接");
-            } else {
-                HotspotInfo.tryEnableAp(this);
-                HotspotInfo.openTetherSettings(this);
-            }
-        } else if (!ap.apEnabled) {
-            HotspotInfo.tryEnableAp(this);
-        }
-
-        String ip = ApkHttpServer.findLanIp();
-        if (ip == null) {
-            showHint("未找到内网 IP，正在打开系统热点设置…");
-            HotspotInfo.openTetherSettings(this);
-            ui.postDelayed(this::showInstallQr, 1800);
-            return;
-        }
-        String url = ApkHttpServer.downloadUrl(ip);
-        if (!ap.valid()) ap = HotspotInfo.read(this);
-
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(8), dp(16), dp(4));
+        root.setPadding(dp(20), dp(10), dp(20), dp(8));
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
 
         TextView tip = new TextView(this);
-        if (ap.valid()) {
-            tip.setText((ap.fromMemory ? "热点（上次手填）：" : "热点：") + ap.ssid
-                    + (ap.apEnabled ? " · 已开启" : " · 请确认已开启")
-                    + "\n手机扫码一步：入网 + 下载安装");
-        } else {
-            tip.setText("系统读不到热点 SSID（腾讯车联可能自管 AP）。\n"
-                    + "请：打开系统热点 → 手机连上后填 SSID/密码点刷新；\n"
-                    + "或已连同一 Wi-Fi 时直接扫右侧下载码。");
-        }
+        tip.setText("手机联网扫码 → 浏览器下载最新手机版 APK\n（Release 固定文件名，永远是最新版）");
         tip.setTextColor(C_TEXT_DIM);
-        tip.setTextSize(13);
-        tip.setPadding(0, 0, 0, dp(6));
+        tip.setTextSize(14);
+        tip.setGravity(Gravity.CENTER);
+        tip.setLineSpacing(dp(3), 1f);
         root.addView(tip);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.TOP);
-
-        LinearLayout left = new LinearLayout(this);
-        left.setOrientation(LinearLayout.VERTICAL);
-        left.setLayoutParams(new LinearLayout.LayoutParams(0, dp(200), 1.1f));
-
-        final EditText etSsid = new EditText(this);
-        etSsid.setHint("SSID");
-        etSsid.setTextColor(C_TEXT);
-        etSsid.setHintTextColor(C_TEXT_DIM);
-        etSsid.setTextSize(13);
-        etSsid.setText(ap.valid() ? ap.ssid : "");
-        left.addView(etSsid);
-        final EditText etPass = new EditText(this);
-        etPass.setHint("密码");
-        etPass.setTextColor(C_TEXT);
-        etPass.setHintTextColor(C_TEXT_DIM);
-        etPass.setTextSize(13);
-        etPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
-        if (ap.password != null) etPass.setText(ap.password);
-        left.addView(etPass);
+        final ImageView qrView = new ImageView(this);
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(dp(220), dp(220));
+        qlp.topMargin = dp(10);
+        qrView.setLayoutParams(qlp);
+        try {
+            qrView.setImageBitmap(QrEncoder.encode(PHONE_APK_URL, 5));
+        } catch (Exception e) {
+            showHint("二维码生成失败: " + e);
+            return;
+        }
+        root.addView(qrView);
 
         TextView urlTv = new TextView(this);
-        urlTv.setText(url);
+        urlTv.setText(PHONE_APK_URL);
         urlTv.setTextColor(C_PRIMARY);
         urlTv.setTextSize(11);
-        urlTv.setPadding(0, dp(4), 0, 0);
-        left.addView(urlTv);
-
-        Button btnWifi = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnWifi.setText("刷新二维码");
-        btnWifi.setBackgroundResource(R.drawable.btn_ghost);
-        btnWifi.setTextColor(C_PRIMARY);
-        btnWifi.setTextSize(13);
-        btnWifi.setAllCaps(false);
-        btnWifi.setStateListAnimator(null);
-        Button btnOpenAp = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnOpenAp.setText("打开系统热点设置");
-        btnOpenAp.setBackgroundResource(R.drawable.btn_ghost);
-        btnOpenAp.setTextColor(C_PRIMARY);
-        btnOpenAp.setTextSize(13);
-        btnOpenAp.setAllCaps(false);
-        btnOpenAp.setStateListAnimator(null);
-        left.addView(btnOpenAp);
-        btnOpenAp.setOnClickListener(v -> HotspotInfo.openTetherSettings(this));
-        row.addView(left);
-
-        final ImageView qrView = new ImageView(this);
-        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(dp(190), dp(190));
-        qlp.leftMargin = dp(6);
-        qrView.setLayoutParams(qlp);
-        row.addView(qrView);
-        root.addView(row);
-
-        final Runnable[] render = new Runnable[1];
-        render[0] = () -> {
-            String ssid = etSsid.getText().toString().trim();
-            String pass = etPass.getText().toString();
-            String payload = url;
-            if (!ssid.isEmpty()) {
-                String wifi = pass.isEmpty()
-                        ? "WIFI:T:nopass;S:" + escapeWifi(ssid) + ";;"
-                        : "WIFI:T:WPA;S:" + escapeWifi(ssid) + ";P:" + escapeWifi(pass) + ";;";
-                payload = wifi + "\n" + url;
-            }
+        urlTv.setGravity(Gravity.CENTER);
+        urlTv.setPadding(0, dp(8), 0, 0);
+        urlTv.setOnClickListener(v -> {
             try {
-                qrView.setImageBitmap(QrEncoder.encode(payload, 4));
-            } catch (Exception e) {
-                try { qrView.setImageBitmap(QrEncoder.encode(url, 4)); }
-                catch (Exception ignored) {}
-            }
-        };
-        render[0].run();
-        btnWifi.setOnClickListener(v -> {
-            HotspotInfo.save(this, etSsid.getText().toString().trim(), etPass.getText().toString());
-            render[0].run();
-            showHint("已保存热点信息，下次打开自动带上");
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(RELEASE_PAGE)));
+            } catch (Exception ignored) {}
         });
+        root.addView(urlTv);
 
         installDialog = new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
                 android.R.style.Theme_Material_Dialog))
-                .setTitle("热点扫码装手机端")
+                .setTitle("下载手机端（GitHub Release）")
                 .setView(root)
                 .setNegativeButton("关闭", null)
-                .setOnDismissListener(d -> ui.postDelayed(apkServer::stop, 3 * 60 * 1000))
                 .show();
-    }
-
-    private static String escapeWifi(String s) {
-        return s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
-                .replace(":", "\\:").replace("\"", "\\\"");
     }
 
     @Override

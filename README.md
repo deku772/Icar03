@@ -63,7 +63,9 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 
 ### 车机扫码装手机端（推荐）
 
-主界面「2 · 热点扫码装手机端」→ 手机连热点扫码下载安装。
+主界面「2 · 扫码下载手机端」→ 手机联网扫码 → 直接下载
+[Release 最新 `IcarLyrics-Phone.apk`](https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Phone.apk)。
+车机无需开热点；CI 每次发版都会上传稳定文件名。
 
 ### ADB 一次性授权（车机）
 

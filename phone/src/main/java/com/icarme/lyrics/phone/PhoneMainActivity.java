@@ -67,6 +67,9 @@ public class PhoneMainActivity extends Activity {
         root.addView(buildLrcCard());
         setContentView(scroll);
 
+        ui.postDelayed(() -> UpdateChecker.checkAndPrompt(this,
+                BuildConfig.VERSION_NAME, true), 2500);
+
         /* 实时监控：每秒刷新链路状态 */
         ui.postDelayed(new Runnable() {
             @Override public void run() {
@@ -183,6 +186,14 @@ public class PhoneMainActivity extends Activity {
         styleButton(btnService, R.drawable.btn_ghost, C_PRIMARY);
         btnService.setOnClickListener(v -> toggleService());
         box.addView(btnService);
+
+        Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnUpd.setText("3 · 检查更新（GitHub）");
+        styleButton(btnUpd, R.drawable.btn_ghost, C_PRIMARY);
+        btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
+                BuildConfig.VERSION_NAME, false));
+        box.addView(btnUpd);
         return box;
     }
 
