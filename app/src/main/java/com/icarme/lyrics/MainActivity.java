@@ -245,7 +245,7 @@ public class MainActivity extends Activity {
                 ctl.setOrientation(LinearLayout.HORIZONTAL);
                 ctl.setGravity(Gravity.CENTER_VERTICAL);
                 String[] als = {"left", "center", "right"};
-                String[] names = {"居左", "居中", "居右"};
+                String[] names = {"居中左", "居中", "居中右"};
                 for (int k = 0; k < 3; k++) {
                     final String al = als[k];
                     Button b = new Button(new android.view.ContextThemeWrapper(this,
@@ -482,7 +482,7 @@ public class MainActivity extends Activity {
 
         String al = OverlayService.getAlign();
         setDot(ROW_ALIGN, C_PRIMARY);
-        rowValues[ROW_ALIGN].setText("left".equals(al) ? "居左" : "right".equals(al) ? "居右" : "居中");
+        rowValues[ROW_ALIGN].setText("left".equals(al) ? "居中左" : "right".equals(al) ? "居中右" : "居中");
 
         String col = OverlayService.getColor();
         setDot(ROW_COLOR, C_PRIMARY);

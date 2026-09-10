@@ -59,14 +59,14 @@
     font-weight:560;opacity:.85;}
   body.has-trans .line.has-trans{line-height:calc(var(--line-h) * 0.72);}
   body.has-trans .line.has-trans .trans{display:block;}
-  .line.near{color:var(--focus-near);}
+  .line.near{color:var(--focus);}
   .line.past{color:var(--past);}
-  /* 屏幕中央三行同等突出：焦点色 + 放大约 2 号；当前行最亮 */
+  /* 屏幕中央三行：同色同大，只用阴影区分当前行 */
   .line.near .orig{font-size:var(--fs-active);}
   .line.active{color:var(--focus);font-weight:820;}
   .line.active .orig{font-size:var(--fs-active);text-shadow:var(--shadow);}
   .line.active .trans{color:var(--focus);font-weight:620;opacity:.9;}
-  .line.near .trans{color:var(--focus-near);}
+  .line.near .trans{color:var(--focus);opacity:.75;}
   body.paused .line.active .orig{animation:breathe 2.4s ease-in-out infinite;}
   @keyframes breathe{50%{opacity:.55;}}
   /* 地图模式：歌词收到屏幕底部、更小更透，不挡路线 */
@@ -75,9 +75,13 @@
   body.mode-map{--fs:22px;--fs-active:30px;--fs-near:30px;--fs-trans:14px;--line-h:44px;}
   body.mode-map .line .orig{opacity:.92;}
   body.mode-map .line.active .orig{text-shadow:0 1px 8px rgba(0,0,0,.85);}
-  /* 居左时离边约 2cm（车机 dpi 下约 56–72px），不是贴边 */
-  #lyrics.align-left{padding-left:64px;padding-right:24px;}
-  #lyrics.align-right{padding-right:64px;padding-left:24px;}
+  /* 居中左：整块歌词偏左中带，不贴边 */
+  #lyrics.align-left{padding-left:10%;padding-right:26%;text-align:left;}
+  /* 居中右：对称 */
+  #lyrics.align-right{padding-right:10%;padding-left:26%;text-align:right;}
+  /* 系统设置页：歌词大幅让开，避免挡住热点/授权界面 */
+  body.mode-settings #stage{opacity:.12;pointer-events:none;}
+  body.mode-settings #hint{opacity:0;}
   #hint{position:fixed;top:2.4vh;left:0;right:0;text-align:center;color:var(--dim);
     font-size:17px;line-height:1.7;transition:opacity .3s;}
   #hint .sub{font-size:13px;opacity:.75;}
@@ -262,9 +266,10 @@ function handleCmd(msg){
     }
   }
   else if (a === 'setScene'){
-    var sc = msg.value === 'map' ? 'map' : 'wallpaper';
+    var sc = msg.value;
     document.body.classList.toggle('mode-map', sc === 'map');
     document.body.classList.toggle('mode-wallpaper', sc === 'wallpaper');
+    document.body.classList.toggle('mode-settings', sc === 'settings');
     layoutMetrics();
     if (S.lines.length) positionToCurrent(true);
   }

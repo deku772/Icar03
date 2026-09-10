@@ -22,6 +22,7 @@ public final class SceneDetector {
 
     public static final String MODE_WALLPAPER = "wallpaper";
     public static final String MODE_MAP = "map";
+    public static final String MODE_SETTINGS = "settings";
 
     private static final Set<String> MAP_PKGS = new HashSet<>(Arrays.asList(
             "com.autonavi.minimap",
@@ -44,25 +45,26 @@ public final class SceneDetector {
 
     public String lastMode() { return lastMode; }
 
-    /** 轮询前台包名，返回 wallpaper / map */
+    /** 轮询前台包名，返回 wallpaper / map / settings */
     public String poll(Context ctx) {
         try {
             String pkg = topPackage(ctx);
             lastPkg = pkg == null ? "" : pkg;
-            boolean map = isMapPkg(lastPkg);
-            lastMode = map ? MODE_MAP : MODE_WALLPAPER;
+            lastMode = classify(lastPkg);
         } catch (Throwable t) {
             Log.w(TAG, "poll failed", t);
         }
         return lastMode;
     }
 
-    private static boolean isMapPkg(String pkg) {
-        if (pkg == null || pkg.isEmpty()) return false;
+    private static String classify(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return MODE_WALLPAPER;
         String p = pkg.toLowerCase();
-        if (MAP_PKGS.contains(pkg)) return true;
-        return p.contains("map") || p.contains("navi") || p.contains("amap")
-                || p.contains("autonavi") || p.contains("baidumap");
+        if (p.contains("settings") || p.contains("tether")) return MODE_SETTINGS;
+        if (MAP_PKGS.contains(pkg)) return MODE_MAP;
+        if (p.contains("map") || p.contains("navi") || p.contains("amap")
+                || p.contains("autonavi") || p.contains("baidumap")) return MODE_MAP;
+        return MODE_WALLPAPER;
     }
 
     private static String topPackage(Context ctx) {
