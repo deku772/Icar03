@@ -105,7 +105,7 @@ public class OverlayService extends Service {
 
     static void setColor(String color) {
         if (!"white".equals(color) && !"blue".equals(color) && !"green".equals(color)
-                && !"amber".equals(color) && !"pink".equals(color)) return;
+                && !"amber".equals(color) && !"pink".equals(color) && !"black".equals(color)) return;
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_COLOR, color).apply();
         pushColor(color);

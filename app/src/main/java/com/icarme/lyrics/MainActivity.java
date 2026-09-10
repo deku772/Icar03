@@ -73,6 +73,7 @@ public class MainActivity extends Activity {
 
     private final ScanCallback scanCb = new ScanCallback() {
         @Override public void onScanResult(int callbackType, ScanResult result) {
+            boolean first = found.isEmpty();
             for (int i = 0; i < found.size(); i++) {
                 if (found.get(i).getDevice().getAddress().equals(result.getDevice().getAddress())) {
                     found.set(i, result);   /* 刷新 RSSI */
@@ -80,6 +81,12 @@ public class MainActivity extends Activity {
                 }
             }
             found.add(result);
+            /* 发现即弹出选择，不等 10s 扫满 */
+            if (first) {
+                ui.post(() -> {
+                    if (scanning && !found.isEmpty()) showScanResult();
+                });
+            }
         }
         @Override public void onScanFailed(int errorCode) {
             scanning = false;
@@ -185,10 +192,10 @@ public class MainActivity extends Activity {
             TextView label = new TextView(this);
             label.setText(labels[i]);
             label.setTextColor(C_TEXT_DIM);
-            label.setTextSize(15);
+            label.setTextSize(14);
             LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
-                    dp(110), LinearLayout.LayoutParams.WRAP_CONTENT);
-            llp.leftMargin = dp(14);
+                    dp(88), LinearLayout.LayoutParams.WRAP_CONTENT);
+            llp.leftMargin = dp(12);
             label.setLayoutParams(llp);
             row.addView(label);
 
@@ -253,13 +260,13 @@ public class MainActivity extends Activity {
                 }
                 row.addView(ctl);
             }
-            /* 颜色行：白 / 蓝 / 绿 / 琥珀 / 粉 */
+            /* 颜色行：白 / 黑 / 蓝 / 绿 / 琥珀 / 粉 */
             if (i == ROW_COLOR) {
-                LinearLayout ctl = new LinearLayout(this);
-                ctl.setOrientation(LinearLayout.HORIZONTAL);
-                ctl.setGravity(Gravity.CENTER_VERTICAL);
-                String[] cols = {"white", "blue", "green", "amber", "pink"};
-                String[] names = {"白", "蓝", "绿", "琥珀", "粉"};
+                LinearLayout wrap = new LinearLayout(this);
+                wrap.setOrientation(LinearLayout.HORIZONTAL);
+                wrap.setGravity(Gravity.CENTER_VERTICAL);
+                String[] cols = {"white", "black", "blue", "green", "amber", "pink"};
+                String[] names = {"白", "黑", "蓝", "绿", "琥珀", "粉"};
                 for (int k = 0; k < cols.length; k++) {
                     final String col = cols[k];
                     Button b = new Button(new android.view.ContextThemeWrapper(this,
@@ -267,19 +274,19 @@ public class MainActivity extends Activity {
                     b.setText(names[k]);
                     b.setBackgroundResource(R.drawable.btn_ghost);
                     b.setTextColor(C_PRIMARY);
-                    b.setTextSize(12);
+                    b.setTextSize(13);
                     b.setAllCaps(false);
                     b.setStateListAnimator(null);
-                    LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(48), dp(36));
+                    LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(52), dp(44));
                     blp.leftMargin = dp(4);
                     b.setLayoutParams(blp);
                     b.setOnClickListener(v -> {
                         OverlayService.setColor(col);
                         refreshStatus();
                     });
-                    ctl.addView(b);
+                    wrap.addView(b);
                 }
-                row.addView(ctl);
+                row.addView(wrap);
             }
         }
         return card;
@@ -288,12 +295,12 @@ public class MainActivity extends Activity {
     private void styleMiniButton(Button b) {
         b.setBackgroundResource(R.drawable.btn_ghost);
         b.setTextColor(C_PRIMARY);
-        b.setTextSize(14);
+        b.setTextSize(15);
         b.setAllCaps(false);
         b.setStateListAnimator(null);
-        b.setPadding(dp(10), 0, dp(10), 0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(66), dp(40));
-        lp.leftMargin = dp(8);
+        b.setPadding(dp(12), 0, dp(12), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(84), dp(48));
+        lp.leftMargin = dp(6);
         b.setLayoutParams(lp);
     }
 
@@ -482,8 +489,9 @@ public class MainActivity extends Activity {
 
         String col = OverlayService.getColor();
         setDot(ROW_COLOR, C_PRIMARY);
-        rowValues[ROW_COLOR].setText("white".equals(col) ? "白" : "blue".equals(col) ? "蓝"
-                : "green".equals(col) ? "绿" : "amber".equals(col) ? "琥珀" : "粉");
+        rowValues[ROW_COLOR].setText("white".equals(col) ? "白" : "black".equals(col) ? "黑"
+                : "blue".equals(col) ? "蓝" : "green".equals(col) ? "绿"
+                : "amber".equals(col) ? "琥珀" : "粉");
 
         btnService.setText(svc ? "停止歌词悬浮" : "启动歌词悬浮");
     }
