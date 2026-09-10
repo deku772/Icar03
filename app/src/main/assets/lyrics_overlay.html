@@ -61,11 +61,12 @@
   body.has-trans .line.has-trans .trans{display:block;}
   .line.near{color:var(--focus-near);}
   .line.past{color:var(--past);}
-  /* 屏幕中央三行：中间最大 + 焦点色，两侧次之 + 焦点浅色 */
-  .line.near .orig{font-size:var(--fs-near);}
+  /* 屏幕中央三行同等突出：焦点色 + 放大约 2 号；当前行最亮 */
+  .line.near .orig{font-size:var(--fs-active);}
   .line.active{color:var(--focus);font-weight:820;}
   .line.active .orig{font-size:var(--fs-active);text-shadow:var(--shadow);}
   .line.active .trans{color:var(--focus);font-weight:620;opacity:.9;}
+  .line.near .trans{color:var(--focus-near);}
   body.paused .line.active .orig{animation:breathe 2.4s ease-in-out infinite;}
   @keyframes breathe{50%{opacity:.55;}}
   #hint{position:fixed;top:2.4vh;left:0;right:0;text-align:center;color:var(--dim);
@@ -345,25 +346,18 @@ function layoutMetrics(){
 }
 
 /* ---------------- 当前行定位与切换动画 ---------------- */
-function findLine(t){
-  var idx = -1, lo = 0, hi = S.lines.length-1;
-  while (lo <= hi){
-    var mid = (lo+hi) >> 1;
-    if (S.lines[mid].t <= t + 90){ idx = mid; lo = mid+1; } else hi = mid-1;
-  }
-  return idx;
-}
-
 function applyStates(prev, idx){
   var nodes = ly.children;
-  var lo = Math.max(0, Math.min(prev, idx)-1);
-  var hi = Math.min(nodes.length-1, Math.max(prev, idx)+1);
+  var lo = Math.max(0, Math.min(prev, idx)-2);
+  var hi = Math.min(nodes.length-1, Math.max(prev, idx)+2);
   for (var i=0;i<nodes.length;i++){
-    if (i<lo || i>hi) continue;   /* 窗口外的行状态已正确，免触碰 */
+    if (i<lo || i>hi) continue;
     var n = nodes[i];
+    var isNear = i!==idx && Math.abs(i-idx)===1;
     n.classList.toggle('active', i===idx);
-    n.classList.toggle('near', i!==idx && Math.abs(i-idx)===1);
-    n.classList.toggle('past', i!==idx && i<idx);
+    n.classList.toggle('near', isNear);
+    /* 上一被唱行若是 near，不再叠 past，避免样式打架只剩两行突出 */
+    n.classList.toggle('past', i!==idx && i<idx && !isNear);
   }
 }
 
@@ -379,7 +373,6 @@ function positionToCurrent(instant){
   var stageH = stage.clientHeight;
   var lineCenter = S.cur * S.lineH + S.lineH * 0.5;
   var topMargin = stageH * 0.10;
-  /* 期望的屏幕 Y：行号小 → 贴上边；行号大 → 屏幕正中 */
   var desired = Math.min(stageH * 0.5, topMargin + lineCenter);
   var target = desired - lineCenter;
   if (instant){
@@ -401,11 +394,24 @@ function switchTo(idx){
 }
 
 /* ---------------- 主循环（轻量：每帧仅二分比较，不触发布局/绘制） ---------------- */
+function findLine(t){
+  var idx = -1, lo = 0, hi = S.lines.length-1;
+  while (lo <= hi){
+    var mid = (lo+hi) >> 1;
+    if (S.lines[mid].t <= t + 90){ idx = mid; lo = mid+1; } else hi = mid-1;
+  }
+  /* 防回跳：时间轴抖一下时不要闪回上一行（除非明显早于当前行 280ms） */
+  if (S.cur >= 0 && idx < S.cur && S.cur < S.lines.length){
+    if (t + 280 >= S.lines[S.cur].t) idx = S.cur;
+  }
+  return idx;
+}
+
 function tick(){
   if (S.lines.length){
     var t = nowMs();
     var idx = findLine(t);
-    if (idx < 0) idx = 0;   /* 前奏阶段（未到第一行）：首行高亮定位，避免整屏空白 */
+    if (idx < 0) idx = 0;
     if (idx !== S.cur) switchTo(idx);
   }
   requestAnimationFrame(tick);
