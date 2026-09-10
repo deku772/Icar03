@@ -320,8 +320,10 @@ public class BleService extends Service {
             } catch (Exception e) {
                 Log.w(TAG, "handle write failed", e);
             }
+            /* v1.8.2：回空响应（标准 Write Response 无载荷）。
+             * 旧代码回传整个 value，在 MTU 23 时大包会被截断/异常，徒增空中开销。 */
             if (responseNeeded) {
-                gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value);
+                gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, new byte[0]);
             }
         }
 
@@ -346,7 +348,7 @@ public class BleService extends Service {
                                              boolean preparedWrite, boolean responseNeeded,
                                              int offset, byte[] value) {
             if (responseNeeded) {
-                gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, value);
+                gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, new byte[0]);
             }
         }
     };

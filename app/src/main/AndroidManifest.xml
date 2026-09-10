@@ -46,5 +46,15 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- ADB 直控（v1.8.2）：am broadcast -a com.icarme.lyrics.START/STOP -->
+        <receiver
+            android:name=".AdbReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.icarme.lyrics.START" />
+                <action android:name="com.icarme.lyrics.STOP" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
