@@ -339,9 +339,13 @@ public class MainActivity extends Activity {
 
         Button btnInstall = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnInstall.setText("扫码安装手机端");
-        styleButton(btnInstall, R.drawable.btn_ghost, C_PRIMARY, false);
+        btnInstall.setText("热点扫码装手机端");
+        styleButton(btnInstall, R.drawable.btn_primary, 0xFFFFFFFF, true);
         btnInstall.setOnClickListener(v -> showInstallQr());
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(58));
+        ilp.topMargin = dp(12);
+        btnInstall.setLayoutParams(ilp);
         box.addView(btnInstall);
         return box;
     }
@@ -652,16 +656,26 @@ public class MainActivity extends Activity {
             showHint("本地下载服务启动失败（端口 " + ApkHttpServer.PORT + " 被占用？）");
             return;
         }
+
+        /* 1) 尽力用系统 API 开热点；2) 读 SoftAP；3) 仍无则打开原生热点设置页 */
+        HotspotInfo ap = HotspotInfo.read(this);
+        if (!ap.apEnabled) {
+            HotspotInfo.tryEnableAp(this);
+            ui.postDelayed(() -> {
+                HotspotInfo again = HotspotInfo.read(this);
+                if (!again.apEnabled) HotspotInfo.openTetherSettings(this);
+            }, 400);
+        }
+
         String ip = ApkHttpServer.findLanIp();
         if (ip == null) {
-            showHint("未找到内网 IP，请确认车机热点/Wi-Fi 已开启");
-            apkServer.stop();
+            showHint("未找到内网 IP，正在打开系统热点设置…");
+            HotspotInfo.openTetherSettings(this);
+            ui.postDelayed(this::showInstallQr, 1500);
             return;
         }
         String url = ApkHttpServer.downloadUrl(ip);
-
-        /* 尝试自动读取车机 SoftAP（腾讯云手车互联每次启动生成的新 SSID/密码） */
-        HotspotInfo ap = HotspotInfo.read(this);
+        ap = HotspotInfo.read(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -669,23 +683,21 @@ public class MainActivity extends Activity {
 
         TextView tip = new TextView(this);
         tip.setText(ap.valid()
-                ? ("热点：" + ap.ssid + (ap.apEnabled ? "（已开启）" : "")
-                + "\n手机扫码：先连热点，再打开下载页安装")
-                : "未能自动读取热点，请手填 SSID/密码后生成合并码");
+                ? ("热点 " + ap.ssid + (ap.apEnabled ? " · 已开启" : " · 请确认已开启")
+                + "\n手机扫码：入网 + 下载安装，一步到位")
+                : "未能读到热点，请打开系统热点后点「刷新」");
         tip.setTextColor(C_TEXT_DIM);
         tip.setTextSize(13);
         tip.setPadding(0, 0, 0, dp(6));
         root.addView(tip);
 
-        /* 左：说明+输入；右：二维码（靠右，避免挡住下方授权说明） */
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.TOP);
 
         LinearLayout left = new LinearLayout(this);
         left.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0, dp(230), 1.2f);
-        left.setLayoutParams(llp);
+        left.setLayoutParams(new LinearLayout.LayoutParams(0, dp(200), 1.1f));
 
         final EditText etSsid = new EditText(this);
         etSsid.setHint("SSID");
@@ -715,15 +727,15 @@ public class MainActivity extends Activity {
         btnWifi.setText("刷新二维码");
         btnWifi.setBackgroundResource(R.drawable.btn_ghost);
         btnWifi.setTextColor(C_PRIMARY);
-        btnWifi.setTextSize(12);
+        btnWifi.setTextSize(13);
         btnWifi.setAllCaps(false);
         btnWifi.setStateListAnimator(null);
         left.addView(btnWifi);
         row.addView(left);
 
         final ImageView qrView = new ImageView(this);
-        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(dp(180), dp(180));
-        qlp.leftMargin = dp(8);
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(dp(190), dp(190));
+        qlp.leftMargin = dp(6);
         qrView.setLayoutParams(qlp);
         row.addView(qrView);
         root.addView(row);
@@ -751,7 +763,7 @@ public class MainActivity extends Activity {
 
         installDialog = new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
                 android.R.style.Theme_Material_Dialog))
-                .setTitle("扫码安装手机端")
+                .setTitle("热点扫码装手机端")
                 .setView(root)
                 .setNegativeButton("关闭", null)
                 .setOnDismissListener(d -> ui.postDelayed(apkServer::stop, 3 * 60 * 1000))

@@ -18,12 +18,14 @@
    * 数据协议不变：IcarJS.onLyrics/onProgress/onCmd
    * ============================================================ */
   :root{
-    --fs: 34px; --fs-near: 38px; --fs-active: 46px; --fs-trans: 19px; --pad: 13px;
-    --line-h: 72px;
+    --fs: 34px; --fs-near: 40px; --fs-active: 48px; --fs-trans: 19px; --pad: 13px;
+    --line-h: 76px;
     --motion: 280ms cubic-bezier(.22,.75,.18,1);
     --fg:#FFFFFF; --near:rgba(255,255,255,.86); --past:rgba(255,255,255,.42);
     --far:rgba(255,255,255,.68); --shadow:0 2px 12px rgba(0,0,0,.72);
     --dim:rgba(255,255,255,.55);
+    --focus:#5BA0FF;           /* 屏幕中央三行强调色（与底色区分） */
+    --focus-near:#7EB6FF;
     --align:center;
   }
   body.theme-light{
@@ -40,12 +42,11 @@
     -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);
     mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);}
   body.no-lyrics #stage{display:none;}
-  /* 视口居中锚点：原点在屏幕垂直中心，按行号平移；
-     上下始终露出多行，形成「中间三行突出」的固定窗口，而非整列从下往上滚 */
-  #lyrics{position:absolute;top:50%;left:0;right:0;padding:0 20px;
+  /* 从上沿起滚：原点在舞台顶部；行数不够居中时贴上边，够了再沉到屏幕中央 */
+  #lyrics{position:absolute;top:0;left:0;right:0;padding:0 20px;
     will-change:transform;transition:transform var(--motion);}
   #lyrics.no-anim{transition:none;}
-  /* 固定行高：当前行放大只改字号，不改 offsetTop，滚动不会抖 */
+  /* 固定行高：放大只改字号，不改 offsetTop */
   .line{
     height:var(--line-h);padding:0;color:var(--far);font-size:var(--fs);
     line-height:var(--line-h);font-weight:620;text-align:var(--align);
@@ -58,13 +59,13 @@
     font-weight:560;opacity:.85;}
   body.has-trans .line.has-trans{line-height:calc(var(--line-h) * 0.72);}
   body.has-trans .line.has-trans .trans{display:block;}
-  .line.near{color:var(--near);}
+  .line.near{color:var(--focus-near);}
   .line.past{color:var(--past);}
-  /* 中间三行分级放大：当前最大，相邻次之——固定行高下只改字号，不重排 */
+  /* 屏幕中央三行：中间最大 + 焦点色，两侧次之 + 焦点浅色 */
   .line.near .orig{font-size:var(--fs-near);}
-  .line.active{color:var(--fg);font-weight:820;}
+  .line.active{color:var(--focus);font-weight:820;}
   .line.active .orig{font-size:var(--fs-active);text-shadow:var(--shadow);}
-  .line.active .trans{color:var(--fg);font-weight:620;opacity:.84;}
+  .line.active .trans{color:var(--focus);font-weight:620;opacity:.9;}
   body.paused .line.active .orig{animation:breathe 2.4s ease-in-out infinite;}
   @keyframes breathe{50%{opacity:.55;}}
   #hint{position:fixed;top:2.4vh;left:0;right:0;text-align:center;color:var(--dim);
@@ -249,21 +250,24 @@ function handleCmd(msg){
   }
   else if (a === 'setColor'){
     var c = msg.value;
+    /* [正文, 中央三行焦点色, 相邻焦点浅色, 已唱, 阴影] */
     var pal = {
-      white: ['#FFFFFF', 'rgba(255,255,255,.86)', 'rgba(255,255,255,.42)', 'rgba(255,255,255,.68)', '0 2px 12px rgba(0,0,0,.72)'],
-      black: ['#111111', 'rgba(17,17,17,.88)', 'rgba(17,17,17,.45)', 'rgba(17,17,17,.68)', '0 2px 10px rgba(255,255,255,.45)'],
-      blue:  ['#5BA0FF', 'rgba(91,160,255,.88)', 'rgba(91,160,255,.42)', 'rgba(91,160,255,.68)', '0 2px 12px rgba(0,0,0,.70)'],
-      green: ['#3DFF9A', 'rgba(61,255,154,.88)', 'rgba(61,255,154,.42)', 'rgba(61,255,154,.68)', '0 2px 12px rgba(0,0,0,.70)'],
-      amber: ['#FFC14D', 'rgba(255,193,77,.88)', 'rgba(255,193,77,.42)', 'rgba(255,193,77,.68)', '0 2px 12px rgba(0,0,0,.70)'],
-      pink:  ['#FF7AB8', 'rgba(255,122,184,.88)', 'rgba(255,122,184,.42)', 'rgba(255,122,184,.68)', '0 2px 12px rgba(0,0,0,.70)']
+      white: ['#FFFFFF', '#5BA0FF', '#7EB6FF', 'rgba(255,255,255,.42)', '0 2px 12px rgba(0,0,0,.72)'],
+      black: ['#111111', '#1A5FD0', '#3D7FE0', 'rgba(17,17,17,.45)', '0 2px 10px rgba(255,255,255,.45)'],
+      blue:  ['#D0E4FF', '#3D8BFF', '#6BA8FF', 'rgba(91,160,255,.42)', '0 2px 12px rgba(0,0,0,.70)'],
+      green: ['#D8FFE8', '#12C86A', '#3DDC8A', 'rgba(61,255,154,.42)', '0 2px 12px rgba(0,0,0,.70)'],
+      amber: ['#FFF0CC', '#E09A12', '#FFC14D', 'rgba(255,193,77,.42)', '0 2px 12px rgba(0,0,0,.70)'],
+      pink:  ['#FFE0EF', '#E04090', '#FF7AB8', 'rgba(255,122,184,.42)', '0 2px 12px rgba(0,0,0,.70)']
     };
     var p = pal[c];
     if (p) {
       var rs = document.documentElement.style;
       rs.setProperty('--fg', p[0]);
-      rs.setProperty('--near', p[1]);
-      rs.setProperty('--past', p[2]);
-      rs.setProperty('--far', p[3]);
+      rs.setProperty('--focus', p[1]);
+      rs.setProperty('--focus-near', p[2]);
+      rs.setProperty('--past', p[3]);
+      rs.setProperty('--far', c==='white' ? 'rgba(255,255,255,.68)' : p[0]);
+      rs.setProperty('--near', p[2]);
       rs.setProperty('--shadow', p[4]);
     }
   }
@@ -327,14 +331,14 @@ function updateVisibility(){
 function layoutMetrics(){
   var h = window.innerHeight;
   var fs = clamp(h*0.042, 24, 42);
-  var fsA = Math.round(fs*1.34);
-  var fsN = Math.round(fs*1.12);
+  /* 中央三行：相邻 +1 号，当前 +2 号 */
+  var fsN = Math.round(fs * 1.18);
+  var fsA = Math.round(fs * 1.38);
   var rs = document.documentElement.style;
   rs.setProperty('--fs', Math.round(fs)+'px');
   rs.setProperty('--fs-near', fsN+'px');
   rs.setProperty('--fs-active', fsA+'px');
   rs.setProperty('--fs-trans', Math.round(fs*0.55)+'px');
-  /* 固定行高：按放大字号留足，避免视觉裁切；切换高亮不改变 offsetTop */
   S.lineH = Math.ceil(fsA * 1.28 + Math.round(fs*0.38) * 2);
   rs.setProperty('--line-h', S.lineH+'px');
   hint.style.fontSize = Math.round(clamp(h*0.024, 14, 20))+'px';
@@ -367,11 +371,17 @@ function setLyricsTranslate(y){
   ly.style.transform = 'translate3d(0,'+y+'px,0)';
 }
 
-/** 把当前行滚到屏幕垂直中心；instant=true 跳过动画（换歌/seek）。
- *  #lyrics 原点在舞台中心，target=-(行中心相对原点的偏移)。 */
+/** 定位当前行：
+ *  开头几行贴屏幕上沿（从上往下滚）；
+ *  上方行数够了之后，当前行沉到屏幕中央，中央±1 行用焦点色放大。 */
 function positionToCurrent(instant){
   if (S.cur < 0) return;
-  var target = -(S.cur * S.lineH + S.lineH * 0.5);
+  var stageH = stage.clientHeight;
+  var lineCenter = S.cur * S.lineH + S.lineH * 0.5;
+  var topMargin = stageH * 0.10;
+  /* 期望的屏幕 Y：行号小 → 贴上边；行号大 → 屏幕正中 */
+  var desired = Math.min(stageH * 0.5, topMargin + lineCenter);
+  var target = desired - lineCenter;
   if (instant){
     ly.classList.add('no-anim');
     setLyricsTranslate(target);
