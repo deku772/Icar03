@@ -95,6 +95,7 @@ var S = {
   track:'', source:'',
   lines:[],            /* [{t,txt,trans}] 行级同步（忽略逐字标签） */
   cur:-1,
+  offsetMs:0,          /* 用户歌词偏移：正=提前（词晚于声时用），负=延后 */
   switchGeneration:0,  /* 换歌/重建代数，防止旧动画回调污染新 DOM */
   connected:false, advState:'', rxFrag:0, rxFrame:0, rxProg:0, rxBrief:'',
   demo:false, loop:true
@@ -102,7 +103,11 @@ var S = {
 
 var FONT = '"MiSans","HarmonyOS Sans SC","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
-function nowMs(){ return S.playing ? S.positionMs + (Date.now()-S.syncedAt) : S.positionMs; }
+/* 偏移在渲染层生效：调节立即重定位（暂停时也生效），与进度包解耦 */
+function nowMs(){
+  var t = S.playing ? S.positionMs + (Date.now()-S.syncedAt) : S.positionMs;
+  return t + S.offsetMs;
+}
 
 /* ---------------- LRC 解析（行级） ---------------- */
 function parseTimeTag(s){
@@ -212,6 +217,16 @@ function handleCmd(msg){
   else if (a === 'setTheme' && (msg.value==='dark'||msg.value==='light')){
     document.body.classList.toggle('theme-dark', msg.value==='dark');
     document.body.classList.toggle('theme-light', msg.value==='light');
+  }
+  else if (a === 'setOffset' && typeof msg.value === 'number'){
+    S.offsetMs = msg.value;
+    /* 偏移变化立即重定位到新当前行（不等待下一个进度包） */
+    if (S.lines.length){
+      var idx = findLine(nowMs());
+      if (idx < 0) idx = 0;
+      if (idx !== S.cur) switchTo(idx);
+      else positionToCurrent(true);
+    }
   }
   else if (a === 'ping'){ notify({ event:'pong', data:{ t:Date.now() } }); }
   syncPanel();

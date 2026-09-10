@@ -199,29 +199,29 @@ public class MainActivity extends Activity {
             rowValues[i] = value;
             card.addView(row);
 
-            /* 歌词偏移行：内嵌 -/+ 调节按钮（正=提前，负=延后，250ms 步进，±5s） */
+            /* 歌词偏移行：内嵌调节按钮（词晚于声→提前，词早于声→延后；250ms 步进，±5s） */
             if (i == ROW_OFFSET) {
                 LinearLayout ctl = new LinearLayout(this);
                 ctl.setOrientation(LinearLayout.HORIZONTAL);
                 ctl.setGravity(Gravity.CENTER_VERTICAL);
-                Button minus = new Button(new android.view.ContextThemeWrapper(this,
+                Button later = new Button(new android.view.ContextThemeWrapper(this,
                         android.R.style.Widget_Material_Button_Borderless), null, 0);
-                minus.setText("−");
-                styleMiniButton(minus);
-                minus.setOnClickListener(v -> {
+                later.setText("延后");
+                styleMiniButton(later);
+                later.setOnClickListener(v -> {
                     OverlayService.adjustOffsetMs(-250);
                     refreshStatus();
                 });
-                Button plus = new Button(new android.view.ContextThemeWrapper(this,
+                Button earlier = new Button(new android.view.ContextThemeWrapper(this,
                         android.R.style.Widget_Material_Button_Borderless), null, 0);
-                plus.setText("＋");
-                styleMiniButton(plus);
-                plus.setOnClickListener(v -> {
+                earlier.setText("提前");
+                styleMiniButton(earlier);
+                earlier.setOnClickListener(v -> {
                     OverlayService.adjustOffsetMs(250);
                     refreshStatus();
                 });
-                ctl.addView(minus);
-                ctl.addView(plus);
+                ctl.addView(later);
+                ctl.addView(earlier);
                 LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
                 ctl.setLayoutParams(clp);
@@ -234,11 +234,11 @@ public class MainActivity extends Activity {
     private void styleMiniButton(Button b) {
         b.setBackgroundResource(R.drawable.btn_ghost);
         b.setTextColor(C_PRIMARY);
-        b.setTextSize(18);
+        b.setTextSize(14);
         b.setAllCaps(false);
         b.setStateListAnimator(null);
-        b.setPadding(dp(14), 0, dp(14), 0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(46), dp(38));
+        b.setPadding(dp(10), 0, dp(10), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(66), dp(40));
         lp.leftMargin = dp(8);
         b.setLayoutParams(lp);
     }
@@ -293,20 +293,33 @@ public class MainActivity extends Activity {
     }
 
     private View buildHelpCard() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackgroundResource(R.drawable.card_bg);
+        box.setPadding(dp(20), dp(16), dp(20), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+        lp.topMargin = dp(20);
+        box.setLayoutParams(lp);
+
+        ScrollView sv = new ScrollView(this);
         TextView help = new TextView(this);
         help.setText(AdbHelper.helpText());
         help.setTextColor(C_TEXT_DIM);
         help.setTextSize(13);
         help.setLineSpacing(dp(3), 1f);
-        ScrollView sv = new ScrollView(this);
         sv.addView(help);
-        sv.setBackgroundResource(R.drawable.card_bg);
-        sv.setPadding(dp(20), dp(16), dp(20), dp(16));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        lp.topMargin = dp(20);
-        sv.setLayoutParams(lp);
-        return sv;
+        box.addView(sv, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        TextView repo = new TextView(this);
+        repo.setText("项目地址：github.com/deku772/Icar03");
+        repo.setTextColor(0xFF5B93F0);
+        repo.setTextSize(12);
+        repo.setGravity(Gravity.CENTER);
+        repo.setPadding(0, dp(8), 0, 0);
+        box.addView(repo);
+        return box;
     }
 
     /* ---------------- 状态刷新 ---------------- */
@@ -354,9 +367,11 @@ public class MainActivity extends Activity {
 
         int off = OverlayService.getOffsetMs();
         setDot(ROW_OFFSET, off == 0 ? 0xFF4B5563 : C_PRIMARY);
-        rowValues[ROW_OFFSET].setText(off == 0 ? "0（默认）"
-                : String.format(java.util.Locale.US, "%s%.2fs（%s）",
-                        off > 0 ? "+" : "−", Math.abs(off) / 1000f, off > 0 ? "提前" : "延后"));
+        rowValues[ROW_OFFSET].setText(off == 0
+                ? "已同步（词快按「延后」· 词慢按「提前」）"
+                : String.format(java.util.Locale.US, "%s%.2fs · %s",
+                        off > 0 ? "提前 " : "延后 ", Math.abs(off) / 1000f,
+                        off > 0 ? "词晚于声" : "词早于声"));
 
         btnService.setText(svc ? "停止歌词悬浮" : "启动歌词悬浮");
     }
@@ -391,13 +406,28 @@ public class MainActivity extends Activity {
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
             adapter.getBluetoothLeScanner().startScan(filters, settings, scanCb);
             scanning = true;
-            btnScan.setText("扫描中…（10 秒）");
             showHint("请确保手机端推送服务已启动");
+            startScanCountdown();
             ui.postDelayed(this::showScanResult, SCAN_MS);
         } catch (Exception e) {
             scanning = false;
             showHint("扫描发起失败: " + e);
         }
+    }
+
+    /** 扫描倒计时：按钮文字逐秒更新（10→0），结束自动恢复 */
+    private void startScanCountdown() {
+        final long deadline = System.currentTimeMillis() + SCAN_MS;
+        ui.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (!scanning) { btnScan.setText("重新扫描"); return; }
+                long remain = Math.max(0, deadline - System.currentTimeMillis());
+                int foundN = found.size();
+                btnScan.setText("扫描中… " + ((remain + 999) / 1000) + "s"
+                        + (foundN > 0 ? " · 已发现 " + foundN : ""));
+                if (remain > 0) ui.postDelayed(this, 250);
+            }
+        }, 100);
     }
 
     private void showHint(String s) {

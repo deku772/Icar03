@@ -66,12 +66,24 @@ public class OverlayService extends Service {
                 .getInt(KEY_OFFSET_MS, 0);
     }
 
-    /** 调整偏移并持久化，返回调整后的值（自动夹在 ±5s） */
+    /** 调整偏移并持久化（±5s 夹取），同时立即下发给渲染器实时重定位 */
     static int adjustOffsetMs(int deltaMs) {
         int v = Math.max(-OFFSET_LIMIT_MS, Math.min(OFFSET_LIMIT_MS, getOffsetMs() + deltaMs));
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putInt(KEY_OFFSET_MS, v).apply();
+        pushOffset(v);
         return v;
+    }
+
+    /** 向渲染器下发当前偏移（服务未运行时静默跳过，启动时同步一次） */
+    static void pushOffset(int valueMs) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("type", "cmd");
+            o.put("action", "setOffset");
+            o.put("value", valueMs);
+            push(o.toString());
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -170,14 +182,16 @@ private void dispatch(final String json) {
                 String payload = json;
                 if ("progress".equals(type)) {
                     /* 进度包：本地蓝牙栈时间轴可信时覆盖 positionMs/playing，
-                     * 消除 A2DP 传输+缓冲延迟；最后应用用户歌词偏移。
+                     * 消除 A2DP 传输+缓冲延迟。用户偏移不在 Java 侧叠加——
+                     * 由渲染层 setOffset 实时应用（暂停/调节立即生效）。
                      * 换歌后 4s 内且本地快照早于换歌时刻 → 不覆盖（旧曲快照） */
                     long now = System.currentTimeMillis();
                     long ln = (now - lyricsAt > 4000 || localSyncAt > lyricsAt) ? localNow() : -1;
-                    long pos = (ln >= 0) ? ln : obj.optLong("positionMs", 0);
-                    if (ln >= 0) obj.put("playing", localPlaying);
-                    obj.put("positionMs", pos + getOffsetMs());
-                    payload = obj.toString();
+                    if (ln >= 0) {
+                        obj.put("positionMs", ln);
+                        obj.put("playing", localPlaying);
+                        payload = obj.toString();
+                    }
                 } else if ("lyrics".equals(type)) {
                     lyricsAt = System.currentTimeMillis();
                 }
@@ -236,7 +250,10 @@ private void dispatch(final String json) {
         web.loadUrl("file:///android_asset/lyrics_overlay.html");
         web.setWebChromeClient(new WebChromeClient() {
             @Override public void onProgressChanged(WebView view, int p) {
-                if (p >= 100) pageReady = true;
+                if (p >= 100 && !pageReady) {
+                    pageReady = true;
+                    pushOffset(getOffsetMs());   /* 页面就绪：同步用户偏移 */
+                }
             }
         });
     }
