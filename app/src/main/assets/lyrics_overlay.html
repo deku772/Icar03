@@ -21,15 +21,15 @@
     --fs: 34px; --fs-near: 38px; --fs-active: 46px; --fs-trans: 19px; --pad: 13px;
     --line-h: 72px;
     --motion: 280ms cubic-bezier(.22,.75,.18,1);
-    --fg:#FFFFFF; --near:rgba(255,255,255,.66); --past:rgba(255,255,255,.26);
-    --far:rgba(255,255,255,.44); --shadow:0 2px 10px rgba(0,0,0,.55);
-    --dim:rgba(255,255,255,.45);
+    --fg:#FFFFFF; --near:rgba(255,255,255,.86); --past:rgba(255,255,255,.42);
+    --far:rgba(255,255,255,.68); --shadow:0 2px 12px rgba(0,0,0,.72);
+    --dim:rgba(255,255,255,.55);
     --align:center;
   }
   body.theme-light{
-    --fg:#171B21; --near:rgba(20,27,35,.66); --past:rgba(20,27,35,.26);
-    --far:rgba(20,27,35,.42); --shadow:0 2px 8px rgba(255,255,255,.65);
-    --dim:rgba(20,27,35,.5);
+    --fg:#171B21; --near:rgba(20,27,35,.88); --past:rgba(20,27,35,.42);
+    --far:rgba(20,27,35,.62); --shadow:0 2px 8px rgba(255,255,255,.75);
+    --dim:rgba(20,27,35,.55);
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;overflow:hidden;background:transparent;
@@ -40,14 +40,16 @@
     -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);
     mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);}
   body.no-lyrics #stage{display:none;}
-  #lyrics{position:absolute;top:0;left:0;right:0;padding:46% 20px;
+  /* 视口居中锚点：原点在屏幕垂直中心，按行号平移；
+     上下始终露出多行，形成「中间三行突出」的固定窗口，而非整列从下往上滚 */
+  #lyrics{position:absolute;top:50%;left:0;right:0;padding:0 20px;
     will-change:transform;transition:transform var(--motion);}
   #lyrics.no-anim{transition:none;}
   /* 固定行高：当前行放大只改字号，不改 offsetTop，滚动不会抖 */
   .line{
     height:var(--line-h);padding:0;color:var(--far);font-size:var(--fs);
     line-height:var(--line-h);font-weight:620;text-align:var(--align);
-    opacity:.92;overflow:visible;white-space:nowrap;
+    opacity:1;overflow:visible;white-space:nowrap;
     transition:opacity var(--motion) ease,color 160ms ease;
   }
   .line .orig{display:inline-block;vertical-align:middle;
@@ -248,11 +250,12 @@ function handleCmd(msg){
   else if (a === 'setColor'){
     var c = msg.value;
     var pal = {
-      white: ['#FFFFFF', 'rgba(255,255,255,.66)', 'rgba(255,255,255,.26)', 'rgba(255,255,255,.44)', '0 2px 10px rgba(0,0,0,.55)'],
-      blue:  ['#7EB6FF', 'rgba(126,182,255,.70)', 'rgba(126,182,255,.28)', 'rgba(126,182,255,.46)', '0 2px 12px rgba(40,90,180,.55)'],
-      green: ['#7DFFB0', 'rgba(125,255,176,.70)', 'rgba(125,255,176,.28)', 'rgba(125,255,176,.46)', '0 2px 12px rgba(20,120,70,.50)'],
-      amber: ['#FFD27A', 'rgba(255,210,122,.70)', 'rgba(255,210,122,.28)', 'rgba(255,210,122,.46)', '0 2px 12px rgba(140,90,20,.50)'],
-      pink:  ['#FF9EC8', 'rgba(255,158,200,.70)', 'rgba(255,158,200,.28)', 'rgba(255,158,200,.46)', '0 2px 12px rgba(140,40,90,.50)']
+      white: ['#FFFFFF', 'rgba(255,255,255,.86)', 'rgba(255,255,255,.42)', 'rgba(255,255,255,.68)', '0 2px 12px rgba(0,0,0,.72)'],
+      black: ['#111111', 'rgba(17,17,17,.88)', 'rgba(17,17,17,.45)', 'rgba(17,17,17,.68)', '0 2px 10px rgba(255,255,255,.45)'],
+      blue:  ['#5BA0FF', 'rgba(91,160,255,.88)', 'rgba(91,160,255,.42)', 'rgba(91,160,255,.68)', '0 2px 12px rgba(0,0,0,.70)'],
+      green: ['#3DFF9A', 'rgba(61,255,154,.88)', 'rgba(61,255,154,.42)', 'rgba(61,255,154,.68)', '0 2px 12px rgba(0,0,0,.70)'],
+      amber: ['#FFC14D', 'rgba(255,193,77,.88)', 'rgba(255,193,77,.42)', 'rgba(255,193,77,.68)', '0 2px 12px rgba(0,0,0,.70)'],
+      pink:  ['#FF7AB8', 'rgba(255,122,184,.88)', 'rgba(255,122,184,.42)', 'rgba(255,122,184,.68)', '0 2px 12px rgba(0,0,0,.70)']
     };
     var p = pal[c];
     if (p) {
@@ -365,10 +368,10 @@ function setLyricsTranslate(y){
 }
 
 /** 把当前行滚到屏幕垂直中心；instant=true 跳过动画（换歌/seek）。
- *  固定行高后 target 只与行号有关，不再读 offsetTop，避免放大重排导致跳动。 */
+ *  #lyrics 原点在舞台中心，target=-(行中心相对原点的偏移)。 */
 function positionToCurrent(instant){
   if (S.cur < 0) return;
-  var target = stage.clientHeight * 0.5 - (S.cur * S.lineH + S.lineH * 0.5);
+  var target = -(S.cur * S.lineH + S.lineH * 0.5);
   if (instant){
     ly.classList.add('no-anim');
     setLyricsTranslate(target);
