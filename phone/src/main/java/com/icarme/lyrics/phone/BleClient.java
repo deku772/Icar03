@@ -79,6 +79,16 @@ class BleClient {
     private String selectedAddress;
     private boolean reconnectEnabled = false;
 
+    /* v1.8.2 MTU 自适应阶梯：车机老高通栈（gatt_sr.cc）拒绝 PDU>512 的 MTU 交换，
+     * 一加栈 requestMtu(512) 实际发出 517 → 被拒 → 链路中毒 → 写入全败 → 循环重连。
+     * 改为从 247 起步（PDU 250，安全），被拒自动降档；成功的值按设备记忆。 */
+    private static final int[] MTU_LADDER = {247, 185, 23};
+    private int mtuIndex = 0;
+    private int requestedMtu = 0;
+    /* 连接看门狗触发后的降档起点（本次进程内记忆，静默无响应的档位直接跳过） */
+    private int nextMtuIndexOverride = -1;
+    private static final String KEY_MTU_PREFIX = "mtu_";
+
     /** 写入队列 v2：严格串行、绝不伪放行，卡死即重连（v1.8） */
     private final BleWriteQueue writeQueue = new BleWriteQueue(this::writeRaw, this::onWriteStalled);
 
@@ -225,6 +235,10 @@ class BleClient {
     private final Runnable connectWatchdog = new Runnable() {
         @Override public void run() {
             if (state.equals("connecting")) {
+                /* v1.8.2：若本轮死在 MTU 协商，下次连接从更低档位起步（该档位疑似静默卡死） */
+                if (requestedMtu > 23) {
+                    nextMtuIndexOverride = Math.min(mtuIndex + 1, MTU_LADDER.length - 1);
+                }
                 setState("error", "连接超时（15秒无响应）。请确认：车机已启动歌词悬浮、蓝牙已开启、距离够近");
                 if (gatt != null) {
                     try { gatt.disconnect(); gatt.close(); } catch (Exception ignored) {}
@@ -260,8 +274,20 @@ class BleClient {
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
                 cancelConnectWatchdog();
-                setState("connecting", "物理连接成功，协商 MTU…");
-                g.requestMtu(512);
+                /* v1.8.2：MTU 阶梯起点 = 看门狗降档 > 设备记忆 > 默认 247 */
+                int startIdx = 0;
+                if (nextMtuIndexOverride >= 0) {
+                    startIdx = nextMtuIndexOverride;
+                    nextMtuIndexOverride = -1;
+                } else {
+                    int remembered = rememberedMtu(g);
+                    if (remembered > 0) {
+                        for (int i = 0; i < MTU_LADDER.length; i++) {
+                            if (MTU_LADDER[i] == remembered) { startIdx = i; break; }
+                        }
+                    }
+                }
+                requestMtuAt(g, startIdx);
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                 cancelConnectWatchdog();
                 cleanup();
@@ -273,15 +299,40 @@ class BleClient {
             }
         }
 
+        /** 按阶梯档位发起 MTU 协商；档位 23 = 跳过协商直接发现服务 */
+        private void requestMtuAt(BluetoothGatt g, int idx) {
+            mtuIndex = idx;
+            int m = MTU_LADDER[idx];
+            if (m <= 23) {
+                BleClient.this.mtu = 23;
+                setState("connecting", "跳过 MTU 协商（默认 23），发现服务…");
+                g.discoverServices();
+                return;
+            }
+            requestedMtu = m;
+            setState("connecting", "协商 MTU " + m + "…");
+            g.requestMtu(m);
+        }
+
         @Override
         public void onMtuChanged(BluetoothGatt g, int mtu, int status) {
-            BleClient.this.mtu = mtu;
             if (status == BluetoothGatt.GATT_SUCCESS) {
+                BleClient.this.mtu = Math.max(23, mtu);
+                if (mtu > 23) saveMtu(g, mtu);
                 setState("connecting", "MTU=" + mtu + "，发现服务…");
                 g.discoverServices();
             } else {
-                setState("connecting", "MTU 协商失败，发现服务…");
-                g.discoverServices();
+                /* 被拒：降档重试 */
+                int next = mtuIndex + 1;
+                if (next < MTU_LADDER.length && MTU_LADDER[next] > 23) {
+                    setState("connecting", "MTU " + requestedMtu + " 被拒，降档 " + MTU_LADDER[next] + "…");
+                    requestMtuAt(g, next);
+                } else {
+                    BleClient.this.mtu = 23;
+                    saveMtu(g, 23);
+                    setState("connecting", "MTU 协商失败，用默认 23…");
+                    g.discoverServices();
+                }
             }
         }
 
@@ -303,16 +354,17 @@ class BleClient {
                 setState("error", "歌词特征缺失（车机端版本旧）");
                 return;
             }
-            setState("connected", "车机已连接，等待播放…");
+            setState("connected", "车机已连接（MTU=" + BleClient.this.mtu + "），等待播放…");
+            nextMtuIndexOverride = -1;   /* 本档位可用，清除降档记忆 */
         }
 
         @Override
         public void onCharacteristicWrite(BluetoothGatt g, BluetoothGattCharacteristic ch, int status) {
-            /* 每片/每包 ACK：放行队列下一个（v1.5 新增） */
+            /* v1.8.2：ACK status≠0 不再视为完成，交由队列退避重发当前片 */
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "characteristic write status=" + status);
             }
-            writeQueue.onWriteComplete();
+            writeQueue.onWriteResult(status == BluetoothGatt.GATT_SUCCESS);
         }
     };
 
@@ -364,6 +416,26 @@ class BleClient {
         /* 断开回调里会 cleanup + 3 秒后重连；重连后 onBleState 补推当前曲目 */
     }
 
+    /* ---------------- MTU 设备记忆（v1.8.2） ---------------- */
+
+    private int rememberedMtu(BluetoothGatt g) {
+        try {
+            String addr = g.getDevice().getAddress();
+            return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getInt(KEY_MTU_PREFIX + addr, -1);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private void saveMtu(BluetoothGatt g, int mtu) {
+        try {
+            String addr = g.getDevice().getAddress();
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit().putInt(KEY_MTU_PREFIX + addr, mtu).apply();
+        } catch (Exception ignored) {}
+    }
+
     /* ---------------- 生命周期 ---------------- */
 
     void disconnect() {
@@ -383,6 +455,7 @@ class BleClient {
         chLyrics = null;
         chProgress = null;
         mtu = 20;
+        requestedMtu = 0;
     }
 
     private void setState(String s, String detail) {

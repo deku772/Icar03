@@ -10,7 +10,10 @@ public class BootReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) return;
         if (!android.provider.Settings.canDrawOverlays(context)) return;
-        context.startService(new Intent(context, OverlayService.class));
-        context.startService(new Intent(context, BleService.class));
+        /* v1.8.2：startService 在 Android 9 后台被拒（"Background start not allowed"），
+         * 改用 startForegroundService（BOOT_COMPLETED 场景允许，服务 onCreate 内
+         * 已按规约调用 startForeground）。 */
+        context.startForegroundService(new Intent(context, OverlayService.class));
+        context.startForegroundService(new Intent(context, BleService.class));
     }
 }

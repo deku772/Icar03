@@ -55,14 +55,18 @@ final class BleWriteQueue {
      *  v1.8 用 1200ms 与车机（Android 9）迟到的真实 ACK 竞争产生并发在途写，
      *  v1.8.1 放宽到 3000ms 适配慢链路。 */
     private static final long STALL_MS = 3000;
-    private static final int MAX_RETRY = 3;
-    private static final long RETRY_MS = 60;
+
+    /* v1.8.2：发起失败/ACK 失败改为退避重试（60→100→200→400→800ms 封顶），
+     * 重试次数 3→8；不再 180ms 内就升级杀连接（v1.8.1 循环重连的帮凶）。 */
+    private static final long[] RETRY_DELAYS = {60, 100, 200, 400, 800};
+    private static final int MAX_RETRY = 8;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Writer writer;
     private final StallListener stallListener;
     private final Deque<Item> queue = new ArrayDeque<>();
     private boolean busy = false;
+    private Item current;   /* 在途分片（ACK 失败时退避重发，不推进队列） */
 
     final Stats stats = new Stats();
 
@@ -89,21 +93,44 @@ final class BleWriteQueue {
         pumpLocked();
     }
 
-    /** onCharacteristicWrite 回调：当前片完成，放行下一片 */
-    synchronized void onWriteComplete() {
+    /** onCharacteristicWrite 回调：v1.8.2 区分 ACK 成败。
+     *  成功 → 放行下一片；失败 → 退避重发当前片（不推进、不丢弃）。 */
+    synchronized void onWriteResult(boolean ackOk) {
         if (!busy) return;   /* 防重入：迟到/重复回调直接忽略 */
         busy = false;
+        Item item = current;
+        current = null;
         main.removeCallbacks(stallTimer);
-        stats.ackCount++;
-        pumpLocked();
+        if (ackOk) {
+            stats.ackCount++;
+            pumpLocked();
+            return;
+        }
+        /* ACK status != 0：重发当前片 */
+        if (item != null && item.retry < MAX_RETRY) {
+            item.retry++;
+            queue.addFirst(item);
+            main.postDelayed(retryTask, delayFor(item.retry));
+            return;
+        }
+        if (item != null) stats.failCount++;
+        queue.clear();
+        stallListener.onStalled();
     }
 
     /** GATT 断开/重置：清空队列 */
     synchronized void clear() {
         queue.clear();
         busy = false;
+        current = null;
         main.removeCallbacks(stallTimer);
         main.removeCallbacks(retryTask);
+    }
+
+    /** 退避延迟：第 retry 次重试 → 60/100/200/400/800…ms 封顶 */
+    private static long delayFor(int retry) {
+        if (retry <= 0) return RETRY_DELAYS[0];
+        return RETRY_DELAYS[Math.min(retry - 1, RETRY_DELAYS.length - 1)];
     }
 
     private void pumpLocked() {
@@ -118,16 +145,14 @@ final class BleWriteQueue {
             ok = false;
         }
         if (!ok) {
-            /* 发起失败：重试当前片（不清空队列，保住歌词分片序列） */
+            /* 发起失败：退避重试当前片（不清空队列，保住歌词分片序列） */
             if (item.retry < MAX_RETRY) {
                 item.retry++;
                 queue.addFirst(item);
-                main.postDelayed(retryTask, RETRY_MS);
+                main.postDelayed(retryTask, delayFor(item.retry));
                 return;
             }
-            /* 重试仍失败：不再静默丢弃剩余分片（v1.8 教训：静默清空导致车机
-             * 组帧永远 0）。主动触发 stall 回调 → 上层断开重连 → 重连后自动
-             * 补推当前完整曲目，剩余分片随 clear() 一起作废即可。 */
+            /* 退避重试耗尽：链路已无救，断开重连后由上层补推当前曲目 */
             stats.failCount++;
             queue.clear();
             stallListener.onStalled();
@@ -135,6 +160,7 @@ final class BleWriteQueue {
         }
         /* 已发起：等真实 ACK。超时未回 = 链路卡死 */
         busy = true;
+        current = item;
         main.postDelayed(stallTimer, STALL_MS);
     }
 
@@ -151,6 +177,7 @@ final class BleWriteQueue {
                 Log.w(TAG, "write stalled " + STALL_MS + "ms, forcing reconnect");
                 queue.clear();
                 busy = false;
+                current = null;
                 stallListener.onStalled();
             }
         }
