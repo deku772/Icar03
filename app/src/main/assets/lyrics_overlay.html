@@ -42,6 +42,9 @@
     -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);
     mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);}
   body.no-lyrics #stage{display:none;}
+  /* 暂停或未连蓝牙超过 10s：歌词淡出隐藏 */
+  body.idle-hide #stage{opacity:0;pointer-events:none;}
+  #stage{transition:opacity .45s ease;}
   /* 从上沿起滚：原点在舞台顶部；行数不够居中时贴上边，够了再沉到屏幕中央 */
   #lyrics{position:absolute;top:0;left:0;right:0;padding:0 20px;
     will-change:transform;transition:transform var(--motion);}
@@ -126,7 +129,8 @@ var S = {
   lineH:72,            /* 固定行高缓存，滚动定位用 */
   switchGeneration:0,  /* 换歌/重建代数，防止旧动画回调污染新 DOM */
   connected:false, advState:'', rxFrag:0, rxFrame:0, rxProg:0, rxBrief:'',
-  demo:false, loop:true
+  demo:false, loop:true,
+  lastActiveAt:0, idleHideMs:10000, idleHidden:false
 };
 
 var FONT = '"MiSans","HarmonyOS Sans SC","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
@@ -214,6 +218,7 @@ function handleLyrics(msg){
   buildDom();
   updateVisibility();
   positionToCurrent(true);
+  markActive();
   notify({ event:'lyricsLoaded', data:{ count:S.lines.length, track:S.track } });
 }
 
@@ -223,12 +228,16 @@ function handleProgress(msg){
   S.syncedAt = Date.now();
   if (msg.durationMs) S.durationMs = msg.durationMs;
   document.body.classList.toggle('paused', !S.playing);
+  if (S.playing) markActive();
+  else evaluateIdleHide();
 }
 
 function handleCmd(msg){
   if (msg.type === 'conn'){
     if (typeof msg.advState === 'string') S.advState = msg.advState;
     if (typeof msg.connected === 'boolean') S.connected = msg.connected;
+    if (S.connected) markActive();
+    else evaluateIdleHide();
     updateVisibility();
     return;
   }
@@ -443,8 +452,33 @@ function tick(){
     var idx = findLine(t);
     if (idx < 0) idx = 0;
     if (idx !== S.cur) switchTo(idx);
+    evaluateIdleHide();
   }
   requestAnimationFrame(tick);
+}
+
+/** 暂停或未连蓝牙 10s 后隐藏悬浮歌词；恢复播放/连接立即显示 */
+function markActive(){
+  S.lastActiveAt = Date.now();
+  if (S.idleHidden){
+    S.idleHidden = false;
+    document.body.classList.remove('idle-hide');
+  }
+}
+
+function evaluateIdleHide(){
+  if (S.demo || !S.lines.length) return;
+  var live = S.playing && S.connected;
+  if (live){
+    markActive();
+    return;
+  }
+  if (!S.lastActiveAt) S.lastActiveAt = Date.now();
+  var idle = Date.now() - S.lastActiveAt;
+  if (idle >= S.idleHideMs && !S.idleHidden){
+    S.idleHidden = true;
+    document.body.classList.add('idle-hide');
+  }
 }
 
 /* ---------------- 演示模式（浏览器 / 无 NativeBridge） ---------------- */
