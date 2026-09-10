@@ -54,6 +54,26 @@ public class OverlayService extends Service {
     private long lyricsAt = 0;         /* 最近一次换歌时刻（换歌保护窗，防旧快照污染新曲） */
     private Runnable localTimelineTask;
 
+    /* 歌词时间偏移（用户可调，持久化）：正值=提前，负值=延后，作用于最终 positionMs */
+    private static final String PREFS = "icarlyrics";
+    private static final String KEY_OFFSET_MS = "lyrics_offset_ms";
+    private static final int OFFSET_LIMIT_MS = 5000;
+    private static final int OFFSET_STEP_MS = 250;
+
+    /** 当前偏移（ms），主界面调节后持久化 */
+    static int getOffsetMs() {
+        return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getInt(KEY_OFFSET_MS, 0);
+    }
+
+    /** 调整偏移并持久化，返回调整后的值（自动夹在 ±5s） */
+    static int adjustOffsetMs(int deltaMs) {
+        int v = Math.max(-OFFSET_LIMIT_MS, Math.min(OFFSET_LIMIT_MS, getOffsetMs() + deltaMs));
+        IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putInt(KEY_OFFSET_MS, v).apply();
+        return v;
+    }
+
     @Override
     public IBinder onBind(Intent intent) { return null; }
 
@@ -108,7 +128,8 @@ public class OverlayService extends Service {
         }
     }
 
-    /** 读车机蓝牙栈会话进度；未授权/无会话时保持 localReady=false（走 BLE 兜底） */
+    /** 读车机蓝牙栈会话进度；只信 PLAYING 快照（PAUSED 残留会话的固定 position
+     *  会把歌词钉死不滚动）。快照 3.5s 过期自动降级 BLE 进度。 */
     private void pollLocalTimeline() {
         try {
             MediaSessionManager msm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
@@ -119,11 +140,10 @@ public class OverlayService extends Service {
                 if (pkg == null || !pkg.contains("bluetooth")) continue;
                 PlaybackState ps = c.getPlaybackState();
                 if (ps == null) continue;
-                int st = ps.getState();
-                if (st != PlaybackState.STATE_PLAYING && st != PlaybackState.STATE_PAUSED) continue;
+                if (ps.getState() != PlaybackState.STATE_PLAYING) continue;
                 localPosMs = Math.max(0, ps.getPosition());
                 localSyncAt = System.currentTimeMillis();
-                localPlaying = (st == PlaybackState.STATE_PLAYING);
+                localPlaying = true;
                 localReady = true;
                 return;   /* 取第一个蓝牙栈会话即可 */
             }
@@ -150,15 +170,14 @@ private void dispatch(final String json) {
                 String payload = json;
                 if ("progress".equals(type)) {
                     /* 进度包：本地蓝牙栈时间轴可信时覆盖 positionMs/playing，
-                     * 消除 A2DP 传输+缓冲延迟；durationMs 等其余字段保留。
+                     * 消除 A2DP 传输+缓冲延迟；最后应用用户歌词偏移。
                      * 换歌后 4s 内且本地快照早于换歌时刻 → 不覆盖（旧曲快照） */
                     long now = System.currentTimeMillis();
                     long ln = (now - lyricsAt > 4000 || localSyncAt > lyricsAt) ? localNow() : -1;
-                    if (ln >= 0) {
-                        obj.put("positionMs", ln);
-                        obj.put("playing", localPlaying);
-                        payload = obj.toString();
-                    }
+                    long pos = (ln >= 0) ? ln : obj.optLong("positionMs", 0);
+                    if (ln >= 0) obj.put("playing", localPlaying);
+                    obj.put("positionMs", pos + getOffsetMs());
+                    payload = obj.toString();
                 } else if ("lyrics".equals(type)) {
                     lyricsAt = System.currentTimeMillis();
                 }

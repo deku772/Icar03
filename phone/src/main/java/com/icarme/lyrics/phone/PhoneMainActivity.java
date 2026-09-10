@@ -5,90 +5,69 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import java.util.List;
-
 /**
- * 手机端主界面：权限引导 + 选择车机（记住默认） + 服务开关 + 状态显示。
+ * 手机端主界面（v2.2 深色卡片风格）：
+ * 状态卡片（全链路指示灯）+ 权限/服务按钮 + 歌词预览卡。
+ *
+ * v2.0 角色对调后手机为被动 GATT 服务端：无需选择车机，
+ * 车机按 IcarLyrics 服务 UUID 扫描发现手机并连接。
  */
 public class PhoneMainActivity extends Activity {
 
     private static final int REQ_PERMS = 1;
 
+    /* 深色主题色板（与车机端一致） */
+    private static final int C_BG        = 0xFF0B0F17;
+    private static final int C_TEXT      = 0xFFEFF2F8;
+    private static final int C_TEXT_DIM  = 0xFF8A93A8;
+    private static final int C_PRIMARY   = 0xFF5B93F0;
+    private static final int C_GREEN     = 0xFF4ADE80;
+    private static final int C_RED       = 0xFFF87171;
+    private static final int C_AMBER     = 0xFFFBBF24;
+
+    private static final int ROW_COUNT = 8;
+    private static final int R_NOTIF = 0, R_SERVICE = 1, R_BLE = 2, R_LISTENER = 3,
+            R_MEDIA = 4, R_TRACK = 5, R_FETCH = 6, R_STATS = 7;
+    private final View[] rowDots = new View[ROW_COUNT];
+    private final TextView[] rowValues = new TextView[ROW_COUNT];
+
     private Button btnService;
-    private Button btnDevice;
-    private TextView tvStatus;
     private TextView tvLrc;
+    private TextView tvCrash;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        int pad = (int) (getResources().getDisplayMetrics().density * 20);
+
+        int pad = dp(20);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(C_BG);
+        scroll.setFillViewport(true);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, pad, pad, pad);
+        root.setPadding(pad, dp(28), pad, pad);
+        scroll.addView(root);
 
-        TextView title = new TextView(this);
-        title.setText("IcarLyrics 手机端\n手机取词 → BLE 推送 → 车机渲染");
-        title.setTextSize(20);
-        root.addView(title);
-
-        tvStatus = new TextView(this);
-        tvStatus.setPadding(0, pad, 0, 0);
-        tvStatus.setTextSize(13);
-        root.addView(tvStatus);
-
-        /* 歌词预览区：验证取词环节 */
-        tvLrc = new TextView(this);
-        tvLrc.setPadding(pad, pad / 2, pad, pad / 2);
-        tvLrc.setTextSize(14);
-        tvLrc.setBackgroundColor(0x11000000);
-        root.addView(tvLrc, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        Button btnPerms = new Button(this);
-        btnPerms.setText("1. 授权（蓝牙/定位/通知使用权）");
-        btnPerms.setOnClickListener(v -> requestPermissions());
-        root.addView(btnPerms);
-
-        btnDevice = new Button(this);
-        btnDevice.setText("2. 查看本机 MAC（车机配置用）");
-        btnDevice.setOnClickListener(v -> showOwnMac());
-        root.addView(btnDevice);
-
-        btnService = new Button(this);
-        btnService.setText("3. 启动推送服务");
-        btnService.setOnClickListener(v -> toggleService());
-        root.addView(btnService);
-
-        TextView help = new TextView(this);
-        help.setText("使用说明（v2.0 角色对调：车机主动连手机）\n\n"
-                + "1) 授权（蓝牙/通知使用权）\n"
-                + "2) 在车机端配置本机 MAC（或 ADB：am broadcast -a com.icarme.lyrics.SET_PHONE --es mac <本机MAC>）\n"
-                + "3) 启动推送服务 → 放歌 → 车机悬浮窗出词\n\n"
-                + "链路诊断看上方监控：媒体→取词→推送→BLE\n"
-                + "哪一步断了就查哪一步。");
-        help.setTextSize(13);
-        ScrollView sv = new ScrollView(this);
-        sv.addView(help);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        lp.topMargin = pad;
-        sv.setLayoutParams(lp);
-        root.addView(sv);
-
-        setContentView(root);
+        root.addView(buildHeader());
+        root.addView(buildStatusCard());
+        root.addView(buildButtons());
+        root.addView(buildLrcCard());
+        setContentView(scroll);
 
         /* 实时监控：每秒刷新链路状态 */
         ui.postDelayed(new Runnable() {
@@ -100,14 +79,183 @@ public class PhoneMainActivity extends Activity {
         }, 500);
     }
 
+    /* ---------------- 界面构建 ---------------- */
+
+    private View buildHeader() {
+        LinearLayout h = new LinearLayout(this);
+        h.setOrientation(LinearLayout.HORIZONTAL);
+        h.setGravity(Gravity.CENTER_VERTICAL);
+
+        GradientDrawable badge = new GradientDrawable();
+        badge.setCornerRadius(dp(16));
+        badge.setColor(0xFF101725);
+        badge.setStroke(dp(1), 0xFF232C42);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_launcher_foreground);
+        logo.setBackground(badge);
+        logo.setPadding(dp(8), dp(8), dp(8), dp(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(56), dp(56));
+        lp.rightMargin = dp(14);
+        logo.setLayoutParams(lp);
+        h.addView(logo);
+
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView title = new TextView(this);
+        title.setText("IcarLyrics");
+        title.setTextColor(C_TEXT);
+        title.setTextSize(22);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        TextView sub = new TextView(this);
+        sub.setText("手机端 · 取词与 BLE 推送");
+        sub.setTextColor(C_TEXT_DIM);
+        sub.setTextSize(13);
+        t.addView(title);
+        t.addView(sub);
+        h.addView(t);
+        return h;
+    }
+
+    private View buildStatusCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_bg);
+        card.setPadding(dp(18), dp(14), dp(18), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(18);
+        card.setLayoutParams(lp);
+
+        String[] labels = {"通知使用权", "推送服务", "BLE", "监听服务", "媒体检测", "当前曲目", "取词", "推送统计"};
+        for (int i = 0; i < ROW_COUNT; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(5), 0, dp(5));
+
+            View dot = new View(this);
+            GradientDrawable d = new GradientDrawable();
+            d.setShape(GradientDrawable.OVAL);
+            d.setColor(0xFF4B5563);
+            row.addView(dot, new LinearLayout.LayoutParams(dp(8), dp(8)));
+
+            TextView label = new TextView(this);
+            label.setText(labels[i]);
+            label.setTextColor(C_TEXT_DIM);
+            label.setTextSize(13);
+            LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
+                    dp(86), LinearLayout.LayoutParams.WRAP_CONTENT);
+            llp.leftMargin = dp(12);
+            label.setLayoutParams(llp);
+            row.addView(label);
+
+            TextView value = new TextView(this);
+            value.setTextColor(C_TEXT);
+            value.setTextSize(13);
+            value.setSingleLine(false);
+            value.setMaxLines(2);
+            row.addView(value, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+            rowDots[i] = dot;
+            rowValues[i] = value;
+            card.addView(row);
+        }
+        return card;
+    }
+
+    private View buildButtons() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        blp.topMargin = dp(16);
+        box.setLayoutParams(blp);
+
+        Button btnPerms = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnPerms.setText("1 · 授权（蓝牙 / 通知使用权）");
+        styleButton(btnPerms, R.drawable.btn_primary, 0xFFFFFFFF);
+        btnPerms.setOnClickListener(v -> requestPermissions());
+        box.addView(btnPerms);
+
+        Button btnMac = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnMac.setText("2 · 查看本机 MAC");
+        styleButton(btnMac, R.drawable.btn_ghost, C_PRIMARY);
+        btnMac.setOnClickListener(v -> showOwnMac());
+        box.addView(btnMac);
+
+        btnService = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnService.setText("3 · 启动推送服务");
+        styleButton(btnService, R.drawable.btn_ghost, C_PRIMARY);
+        btnService.setOnClickListener(v -> toggleService());
+        box.addView(btnService);
+        return box;
+    }
+
+    private void styleButton(Button b, int bg, int textColor) {
+        b.setBackgroundResource(bg);
+        b.setTextColor(textColor);
+        b.setTextSize(16);
+        b.setAllCaps(false);
+        b.setStateListAnimator(null);
+        b.setPadding(dp(16), 0, dp(16), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50));
+        lp.topMargin = dp(10);
+        b.setLayoutParams(lp);
+    }
+
+    private View buildLrcCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_bg);
+        card.setPadding(dp(18), dp(14), dp(18), dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(16);
+        card.setLayoutParams(lp);
+
+        TextView cap = new TextView(this);
+        cap.setText("歌词预览（取词结果前几行）");
+        cap.setTextColor(C_TEXT_DIM);
+        cap.setTextSize(12);
+        card.addView(cap);
+
+        tvLrc = new TextView(this);
+        tvLrc.setTextColor(C_TEXT);
+        tvLrc.setTextSize(15);
+        tvLrc.setLineSpacing(dp(3), 1f);
+        tvLrc.setPadding(0, dp(8), 0, 0);
+        card.addView(tvLrc);
+
+        tvCrash = new TextView(this);
+        tvCrash.setTextColor(C_RED);
+        tvCrash.setTextSize(12);
+        tvCrash.setPadding(0, dp(6), 0, 0);
+        tvCrash.setVisibility(View.GONE);
+        card.addView(tvCrash);
+        return card;
+    }
+
+    /* ---------------- 状态刷新 ---------------- */
+
     @Override
     protected void onResume() {
         super.onResume();
         refreshStatus();
     }
 
+    private void setDot(int row, int color) {
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        d.setColor(color);
+        rowDots[row].setBackground(d);
+    }
+
     private void refreshStatus() {
-        /* 同步 BLE 写入统计到监控快照（每秒刷新） */
         try {
             PlaybackService.refreshWriteStats();
         } catch (Exception ignored) {}
@@ -116,45 +264,56 @@ public class PhoneMainActivity extends Activity {
                 getContentResolver(), "enabled_notification_listeners");
         boolean nl = enabled != null && enabled.contains(getPackageName());
 
-        String dev = PlaybackService.getOwnMac();
-        String devName = dev;
+        PlaybackService.Monitor m = PlaybackService.mon;
+        boolean running = PlaybackService.running;
+
+        setDot(R_NOTIF, nl ? C_GREEN : C_RED);
+        rowValues[R_NOTIF].setText(nl ? "已授权" : "未授权（点「1 · 授权」）");
+
+        setDot(R_SERVICE, running ? C_GREEN : 0xFF4B5563);
+        rowValues[R_SERVICE].setText(running ? "运行中" : "已停止");
+
+        String ble = running ? m.bleState : "未启动";
+        setDot(R_BLE, ble.contains("已连接") ? C_GREEN
+                : ble.contains("订阅") || ble.contains("连接") ? C_PRIMARY : C_AMBER);
+        rowValues[R_BLE].setText(ble);
+
+        setDot(R_LISTENER, running && m.listenerState.contains("已绑定") ? C_GREEN : C_AMBER);
+        rowValues[R_LISTENER].setText(running && !m.listenerState.isEmpty() ? m.listenerState : "—");
+
+        rowValues[R_MEDIA].setText(running && !m.diag.isEmpty() ? m.diag : "—");
+        setDot(R_MEDIA, running && m.diag.contains("播放中") ? C_GREEN : 0xFF4B5563);
+
+        if (!m.track.isEmpty()) {
+            setDot(R_TRACK, C_GREEN);
+            rowValues[R_TRACK].setText(m.track + (m.artist.isEmpty() ? "" : " · " + m.artist));
+        } else {
+            setDot(R_TRACK, 0xFF4B5563);
+            rowValues[R_TRACK].setText("—");
+        }
+
+        setDot(R_FETCH, m.fetchState.startsWith("已获取") ? C_GREEN
+                : m.fetchState.equals("未找到") ? C_AMBER : 0xFF4B5563);
+        rowValues[R_FETCH].setText(m.fetchState.isEmpty() ? "—" : m.fetchState
+                + (m.fetchSource.isEmpty() ? "" : "（" + m.fetchSource + "）"));
+
+        rowValues[R_STATS].setText("歌词 " + m.pushCount + " · 进度 " + m.progressCount
+                + " · ACK " + m.writeAck
+                + (m.writeFail > 0 ? " · 失败 " + m.writeFail : ""));
+        setDot(R_STATS, m.writeFail > 0 ? C_AMBER
+                : m.pushCount > 0 || m.progressCount > 0 ? C_GREEN : 0xFF4B5563);
+
+        String pv = m.lrcPreview;
+        tvLrc.setText(pv.isEmpty() ? "（放歌后此处显示取到的歌词前几行）" : pv);
+        tvLrc.setTextColor(pv.isEmpty() ? C_TEXT_DIM : C_TEXT);
 
         String crash = IcarPhoneApp.readCrash();
-        PlaybackService.Monitor m = PlaybackService.mon;
-        String nlState = nl ? "已授权"
-                : "未授权（放歌无反应时先点上方「1. 授权」）";
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("▸ 通知使用权: ").append(nlState)
-                .append("\n▸ 推送服务: ").append(PlaybackService.running ? "运行中" : "已停止")
-                .append("\n▸ BLE: ").append(PlaybackService.running ? m.bleState : "未启动");
-
-        if (PlaybackService.running) {
-            sb.append("\n▸ 监听服务: ").append(m.listenerState.isEmpty() ? "查询中…" : m.listenerState)
-                    .append("\n▸ 媒体检测: ").append(m.diag.isEmpty() ? "初始化中…" : m.diag);
-            if (!m.track.isEmpty()) {
-                sb.append("\n▸ 当前曲目: ").append(m.track)
-                        .append(m.artist.isEmpty() ? "" : " - " + m.artist);
-            }
-            sb.append("\n▸ 取词: ").append(m.fetchState)
-                    .append(m.fetchSource.isEmpty() ? "" : "（" + m.fetchSource + "）")
-                    .append("\n▸ 推送: 歌词 ").append(m.pushCount).append(" 次 · 进度包 ").append(m.progressCount).append(" 个");
-            /* v1.6 写入诊断：ACK/失败可见，判断是否真送到车机 */
-            if (m.writeAck > 0 || m.writeFail > 0) {
-                sb.append("\n▸ BLE写入: ACK ").append(m.writeAck)
-                        .append(" · 失败 ").append(m.writeFail);
-            }
+        if (crash != null) {
+            tvCrash.setVisibility(View.VISIBLE);
+            tvCrash.setText("[上次崩溃] " + firstLine(crash));
         }
-        if (crash != null) sb.append("\n▸ [上次崩溃] ").append(firstLine(crash));
-        tvStatus.setText(sb.toString());
 
-        /* 歌词预览：验证取词成功与否 */
-        String pv = m.lrcPreview;
-        tvLrc.setText(pv.isEmpty() ? "（歌词预览：放歌后此处显示取到的前几行）" : pv);
-        tvLrc.setTextColor(pv.isEmpty() ? 0xFF8A93A8 : 0xFF1B2333);
-
-        btnService.setText(PlaybackService.running ? "停止推送服务" : "3. 启动推送服务");
-        btnDevice.setText(devName == null ? "2. 查看本机 MAC（车机配置用）" : "本机 MAC: " + devName);
+        btnService.setText(running ? "3 · 停止推送服务" : "3 · 启动推送服务");
     }
 
     private static String firstLine(String s) {
@@ -162,20 +321,20 @@ public class PhoneMainActivity extends Activity {
         return i > 0 ? s.substring(0, i) : s;
     }
 
-    /* ---------------- 本机 MAC（车机按此直连） ---------------- */
+    /* ---------------- 操作 ---------------- */
 
     private void showOwnMac() {
         String mac = PlaybackService.getOwnMac();
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
+                android.R.style.Theme_Material_Dialog))
                 .setTitle("本机蓝牙 MAC")
                 .setMessage((mac == null ? "未读取到（请先开启蓝牙）" : mac)
-                        + "\n\n车机端配置命令（ADB）：\n"
+                        + "\n\n车机端通常无需手填：车机自动扫描发现手机即可连接。\n"
+                        + "如需诊断，可在车机执行：\n"
                         + "am broadcast -a com.icarme.lyrics.SET_PHONE --es mac " + (mac == null ? "<本机MAC>" : mac))
                 .setPositiveButton("好", null)
                 .show();
     }
-
-    /* ---------------- 权限与服务 ---------------- */
 
     private void requestPermissions() {
         String[] perms = {
@@ -201,9 +360,12 @@ public class PhoneMainActivity extends Activity {
         } else {
             startForegroundService(new Intent(this, PlaybackService.class));
         }
-        /* 服务启动/停止是异步的，立即读状态可能未翻转，延迟轮询到状态变化为止 */
         ui.postDelayed(this::refreshStatus, 150);
         ui.postDelayed(this::refreshStatus, 500);
         ui.postDelayed(this::refreshStatus, 1200);
+    }
+
+    private int dp(float v) {
+        return (int) (getResources().getDisplayMetrics().density * v);
     }
 }

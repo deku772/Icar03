@@ -60,8 +60,8 @@ public class MainActivity extends Activity {
     private boolean scanning = false;
 
     /* 状态行控件（refreshStatus 动态更新点色与值） */
-    private static final int ROW_COUNT = 5;
-    private static final int ROW_PERM = 0, ROW_OVERLAY = 1, ROW_BLE = 2, ROW_CONN = 3, ROW_PHONE = 4;
+    private static final int ROW_COUNT = 6;
+    private static final int ROW_PERM = 0, ROW_OVERLAY = 1, ROW_BLE = 2, ROW_CONN = 3, ROW_PHONE = 4, ROW_OFFSET = 5;
     private final View[] rowDots = new View[ROW_COUNT];
     private final TextView[] rowValues = new TextView[ROW_COUNT];
     private TextView tvScanHint;
@@ -163,7 +163,7 @@ public class MainActivity extends Activity {
         lp.topMargin = dp(20);
         card.setLayoutParams(lp);
 
-        String[] labels = {"悬浮窗权限", "悬浮服务", "BLE 服务", "连接状态", "手机地址"};
+        String[] labels = {"悬浮窗权限", "悬浮服务", "BLE 服务", "连接状态", "手机地址", "歌词偏移"};
         for (int i = 0; i < ROW_COUNT; i++) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -198,8 +198,49 @@ public class MainActivity extends Activity {
             rowDots[i] = dot;
             rowValues[i] = value;
             card.addView(row);
+
+            /* 歌词偏移行：内嵌 -/+ 调节按钮（正=提前，负=延后，250ms 步进，±5s） */
+            if (i == ROW_OFFSET) {
+                LinearLayout ctl = new LinearLayout(this);
+                ctl.setOrientation(LinearLayout.HORIZONTAL);
+                ctl.setGravity(Gravity.CENTER_VERTICAL);
+                Button minus = new Button(new android.view.ContextThemeWrapper(this,
+                        android.R.style.Widget_Material_Button_Borderless), null, 0);
+                minus.setText("−");
+                styleMiniButton(minus);
+                minus.setOnClickListener(v -> {
+                    OverlayService.adjustOffsetMs(-250);
+                    refreshStatus();
+                });
+                Button plus = new Button(new android.view.ContextThemeWrapper(this,
+                        android.R.style.Widget_Material_Button_Borderless), null, 0);
+                plus.setText("＋");
+                styleMiniButton(plus);
+                plus.setOnClickListener(v -> {
+                    OverlayService.adjustOffsetMs(250);
+                    refreshStatus();
+                });
+                ctl.addView(minus);
+                ctl.addView(plus);
+                LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                ctl.setLayoutParams(clp);
+                row.addView(ctl);
+            }
         }
         return card;
+    }
+
+    private void styleMiniButton(Button b) {
+        b.setBackgroundResource(R.drawable.btn_ghost);
+        b.setTextColor(C_PRIMARY);
+        b.setTextSize(18);
+        b.setAllCaps(false);
+        b.setStateListAnimator(null);
+        b.setPadding(dp(14), 0, dp(14), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(46), dp(38));
+        lp.leftMargin = dp(8);
+        b.setLayoutParams(lp);
     }
 
     private View buildButtons() {
@@ -310,6 +351,12 @@ public class MainActivity extends Activity {
 
         setDot(ROW_PHONE, phone.equals("未配置") ? C_AMBER : C_PRIMARY);
         rowValues[ROW_PHONE].setText(phone + (phone.equals("未配置") ? "（点上方按钮扫描）" : " · 地址会变，无需手填"));
+
+        int off = OverlayService.getOffsetMs();
+        setDot(ROW_OFFSET, off == 0 ? 0xFF4B5563 : C_PRIMARY);
+        rowValues[ROW_OFFSET].setText(off == 0 ? "0（默认）"
+                : String.format(java.util.Locale.US, "%s%.2fs（%s）",
+                        off > 0 ? "+" : "−", Math.abs(off) / 1000f, off > 0 ? "提前" : "延后"));
 
         btnService.setText(svc ? "停止歌词悬浮" : "启动歌词悬浮");
     }

@@ -137,7 +137,7 @@ class BlePeripheral {
             gattServer.addService(svc);
 
             startAdvertising(adapter);
-            setState("idle", "手机端就绪，等待车机连接（MAC 直连）");
+            setState("idle", "手机端就绪，等待车机扫描连接…");
         } catch (Exception e) {
             Log.e(TAG, "start failed", e);
             setState("error", "服务异常: " + e.getClass().getSimpleName());
@@ -149,7 +149,7 @@ class BlePeripheral {
                 DESC_CCCD, BluetoothGattDescriptor.PERMISSION_READ | BluetoothGattDescriptor.PERMISSION_WRITE));
     }
 
-    /** 广播 IcarLyrics 服务（辅助发现入口；主连接走车机按 MAC 直连）。
+    /** 广播 IcarLyrics 服务（辅助发现入口；主连接走车机按服务 UUID 扫描）。
      *  自定义 UUID 不匹配任何厂商车联服务，不会触发手机端组件对"车机身份"的探查。
      *  注意：车机按 MAC 发起 LE 连接要求手机有可连接广播，此广播是必须项而非可选。
      *  不用 isMultipleAdvertisementSupported() 做闸门（部分机型误报 false），
