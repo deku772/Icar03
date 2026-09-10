@@ -31,8 +31,9 @@ android {
     }
 }
 
-/* 零第三方依赖：全部使用 Android SDK 内置 API */
+/* ZXing：二维码编码（Release 下载码需保证可扫） */
 dependencies {
+    implementation 'com.google.zxing:core:3.5.3'
 }
 
 /* 车机端打包时内嵌手机端 APK，供热点扫码下载（离线内网分发） */

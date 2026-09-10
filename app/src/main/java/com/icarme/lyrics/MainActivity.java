@@ -107,6 +107,7 @@ public class MainActivity extends Activity {
         root.addView(buildHeader());
         root.addView(buildStatusCard());
         root.addView(buildButtons());
+        root.addView(buildQrCard());
         root.addView(buildHelpCard());
         setContentView(root);
 
@@ -362,6 +363,70 @@ public class MainActivity extends Activity {
         btnService.setOnClickListener(v -> toggleService());
         box.addView(btnService);
         return box;
+    }
+
+    /** 主界面直接露出：手机端下载码 + 微信赞赏码 */
+    private View buildQrCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_bg);
+        card.setPadding(dp(16), dp(12), dp(16), dp(12));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = dp(14);
+        card.setLayoutParams(clp);
+
+        TextView cap = new TextView(this);
+        cap.setText("扫码：下载手机端 · 赞赏支持");
+        cap.setTextColor(C_TEXT_DIM);
+        cap.setTextSize(13);
+        cap.setGravity(Gravity.CENTER);
+        card.addView(cap);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_HORIZONTAL);
+        row.setPadding(0, dp(8), 0, 0);
+
+        LinearLayout col1 = new LinearLayout(this);
+        col1.setOrientation(LinearLayout.VERTICAL);
+        col1.setGravity(Gravity.CENTER_HORIZONTAL);
+        ImageView dl = new ImageView(this);
+        try {
+            dl.setImageBitmap(QrEncoder.encode(PHONE_APK_URL, 4));
+        } catch (Exception ignored) {
+            dl.setImageResource(R.drawable.wechat_tip); /* 不应发生 */
+        }
+        col1.addView(dl, new LinearLayout.LayoutParams(dp(140), dp(140)));
+        TextView t1 = new TextView(this);
+        t1.setText("下载手机端");
+        t1.setTextColor(C_PRIMARY);
+        t1.setTextSize(12);
+        t1.setGravity(Gravity.CENTER);
+        col1.addView(t1);
+        row.addView(col1);
+
+        LinearLayout col2 = new LinearLayout(this);
+        col2.setOrientation(LinearLayout.VERTICAL);
+        col2.setGravity(Gravity.CENTER_HORIZONTAL);
+        ImageView tip = new ImageView(this);
+        tip.setImageResource(R.drawable.wechat_tip);
+        tip.setAdjustViewBounds(true);
+        tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(dp(140), dp(140));
+        tipLp.leftMargin = dp(16);
+        tip.setLayoutParams(tipLp);
+        col2.addView(tip);
+        TextView t2 = new TextView(this);
+        t2.setText("微信赞赏");
+        t2.setTextColor(C_AMBER);
+        t2.setTextSize(12);
+        t2.setGravity(Gravity.CENTER);
+        col2.addView(t2);
+        row.addView(col2);
+
+        card.addView(row);
+        return card;
     }
 
     private void styleButton(Button b, int bg, int textColor, boolean big) {

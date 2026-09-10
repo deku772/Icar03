@@ -64,6 +64,7 @@ public class PhoneMainActivity extends Activity {
         root.addView(buildHeader());
         root.addView(buildStatusCard());
         root.addView(buildButtons());
+        root.addView(buildTipCard());
         root.addView(buildLrcCard());
         setContentView(scroll);
 
@@ -195,6 +196,36 @@ public class PhoneMainActivity extends Activity {
                 BuildConfig.VERSION_NAME, false));
         box.addView(btnUpd);
         return box;
+    }
+
+    /** 主界面直接露出微信赞赏码 */
+    private View buildTipCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundResource(R.drawable.card_bg);
+        card.setPadding(dp(18), dp(12), dp(18), dp(12));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(14);
+        card.setLayoutParams(lp);
+
+        TextView cap = new TextView(this);
+        cap.setText("赞赏支持 · Mysa");
+        cap.setTextColor(C_AMBER);
+        cap.setTextSize(13);
+        cap.setGravity(Gravity.CENTER);
+        card.addView(cap);
+
+        ImageView tip = new ImageView(this);
+        tip.setImageResource(R.drawable.wechat_tip);
+        tip.setAdjustViewBounds(true);
+        tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(220));
+        ilp.topMargin = dp(6);
+        tip.setLayoutParams(ilp);
+        card.addView(tip);
+        return card;
     }
 
     private void styleButton(Button b, int bg, int textColor) {
