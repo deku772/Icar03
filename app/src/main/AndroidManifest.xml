@@ -17,6 +17,7 @@
     <application
         android:name=".IcarApp"
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="IcarLyrics"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
@@ -34,6 +35,16 @@
         <service
             android:name=".OverlayService"
             android:exported="false" />
+
+        <!-- 车机蓝牙媒体会话监听（歌词时间轴可信源，需 ADB 授权） -->
+        <service
+            android:name=".CarMediaListener"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <!-- BLE GATT 服务端：接收手机推送的歌词/进度/指令 -->
         <service
