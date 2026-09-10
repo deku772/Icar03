@@ -409,7 +409,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         }).start());
     }
 
-    /** LRC 取前 3 行正文（去掉时间标签）做预览 */
+    /** LRC 取前 3 行正文（去掉时间标签与元数据行）做预览 */
     private static String previewOf(String lrc) {
         if (lrc == null) return "";
         String[] lines = lrc.split("\n");
@@ -419,6 +419,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             if (n >= 3) break;
             String body = ln.replaceFirst("^\\s*(?:\\[\\d+:\\d+(?:\\.\\d+)?\\])+\\s*", "");
             if (body.trim().isEmpty()) continue;
+            /* 元数据行（作词/作曲/编曲…）不进预览 */
+            if (body.trim().matches("^(作词|作曲|编曲|制作人|混音|母带|录音|和声|监制|出品|发行|翻译|词|曲)\\s*[：:].*")) continue;
             sb.append(body.trim()).append("\n");
             n++;
         }
@@ -426,6 +428,11 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     }
 
     /* ---------------- 进度推送循环 ---------------- */
+
+    /* 上次已推送的进度快照：paused 且位置未变时跳过推送，
+     * 避免不放歌时持续 BLE 写入/ACK 空转（恢复播放或 seek 立即恢复推送） */
+    private long lastPushedPos = -1;
+    private boolean lastPushedPlaying = false;
 
     private synchronized void startProgressTask() {
         if (progressTask != null || ble == null) return; /* 已在跑 */
@@ -436,13 +443,24 @@ public class PlaybackService extends Service implements NotificationListener.Cal
                     progressTask = null;
                     return;
                 }
+                boolean unchanged = (!lastPlaying && lastPushedPlaying == lastPlaying
+                        && lastPushedPos == lastPos);
+                if (unchanged) {
+                    /* 暂停且未 seek：本周期跳过，下一周期再查 */
+                    main.postDelayed(this, PROGRESS_INTERVAL_MS);
+                    return;
+                }
                 try {
                     JSONObject msg = new JSONObject();
                     msg.put("type", "progress");
                     msg.put("positionMs", lastPos);
                     msg.put("playing", lastPlaying);
                     if (curDuration > 0) msg.put("durationMs", curDuration);
-                    if (ble.pushJson(msg.toString())) mon.progressCount++;
+                    if (ble.pushJson(msg.toString())) {
+                        mon.progressCount++;
+                        lastPushedPos = lastPos;
+                        lastPushedPlaying = lastPlaying;
+                    }
                 } catch (Exception ignored) {}
                 main.postDelayed(this, PROGRESS_INTERVAL_MS);
             }
@@ -498,7 +516,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         nm.createNotificationChannel(new NotificationChannel(
                 chId, "IcarLyrics 推送", NotificationManager.IMPORTANCE_LOW));
         Notification n = new Notification.Builder(this, chId)
-                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setSmallIcon(R.drawable.ic_stat_lyrics)
                 .setContentTitle("IcarLyrics 手机端运行中")
                 .setContentText("等待播放音乐…")
                 .setOngoing(true)
@@ -509,7 +527,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     private void updateNotification(String text) {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         Notification n = new Notification.Builder(this, "icarlyrics_phone")
-                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setSmallIcon(R.drawable.ic_stat_lyrics)
                 .setContentTitle("IcarLyrics 手机端")
                 .setContentText(text)
                 .setOngoing(true)
