@@ -204,6 +204,44 @@ public final class HotspotInfo {
         }
     }
 
+    /**
+     * 用可写 API 直接设置热点名/密码（系统限制读不到时的正解），
+     * 并尝试开启 AP。成功返回我们自己生成的凭证（可直接出 Wi-Fi 码）。
+     */
+    public static HotspotInfo generateAndSetAp(Context ctx) {
+        String ssid = "IcarLyrics-" + Integer.toHexString(
+                (int) (Math.random() * 0xFFFF) | 0x1000).toUpperCase();
+        String pass = String.format(java.util.Locale.US, "%08d",
+                (int) (Math.random() * 100000000));
+        WifiManager wm = (WifiManager) ctx.getApplicationContext()
+                .getSystemService(Context.WIFI_SERVICE);
+        if (wm == null) return null;
+        try {
+            WifiConfiguration conf = new WifiConfiguration();
+            conf.SSID = ssid;
+            conf.preSharedKey = pass;
+            conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA2_PSK);
+            conf.allowedAuthAlgorithms.set(WifiConfiguration.AuthAlgorithm.OPEN);
+            Method set = findMethod(wm.getClass(), "setWifiApConfiguration");
+            if (set == null) {
+                set = WifiManager.class.getDeclaredMethod("setWifiApConfiguration", WifiConfiguration.class);
+            }
+            set.setAccessible(true);
+            Object ok = set.invoke(wm, conf);
+            boolean wrote = !(ok instanceof Boolean) || (Boolean) ok;
+            if (!wrote) {
+                Log.w(TAG, "setWifiApConfiguration returned false");
+                return null;
+            }
+            save(ctx, ssid, pass);
+            tryEnableAp(ctx);
+            return new HotspotInfo(ssid, pass, true, false);
+        } catch (Throwable t) {
+            Log.w(TAG, "generateAndSetAp failed", t);
+            return null;
+        }
+    }
+
     public static void openTetherSettings(Context ctx) {
         String[] actions = {
                 "android.settings.TETHER_SETTINGS",

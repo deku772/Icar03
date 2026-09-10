@@ -69,6 +69,15 @@
   .line.near .trans{color:var(--focus-near);}
   body.paused .line.active .orig{animation:breathe 2.4s ease-in-out infinite;}
   @keyframes breathe{50%{opacity:.55;}}
+  /* 地图模式：歌词收到屏幕底部、更小更透，不挡路线 */
+  body.mode-map #lyrics{padding-bottom:8%;}
+  body.mode-map .line{height:calc(var(--line-h) * 0.72);line-height:calc(var(--line-h) * 0.72);}
+  body.mode-map{--fs:22px;--fs-active:30px;--fs-near:30px;--fs-trans:14px;--line-h:44px;}
+  body.mode-map .line .orig{opacity:.92;}
+  body.mode-map .line.active .orig{text-shadow:0 1px 8px rgba(0,0,0,.85);}
+  /* 居左时离边约 2cm（车机 dpi 下约 56–72px），不是贴边 */
+  #lyrics.align-left{padding-left:64px;padding-right:24px;}
+  #lyrics.align-right{padding-right:64px;padding-left:24px;}
   #hint{position:fixed;top:2.4vh;left:0;right:0;text-align:center;color:var(--dim);
     font-size:17px;line-height:1.7;transition:opacity .3s;}
   #hint .sub{font-size:13px;opacity:.75;}
@@ -247,18 +256,28 @@ function handleCmd(msg){
     var al = msg.value;
     if (al === 'left' || al === 'center' || al === 'right') {
       document.documentElement.style.setProperty('--align', al);
+      document.body.classList.remove('align-left', 'align-right');
+      if (al === 'left') document.body.classList.add('align-left');
+      if (al === 'right') document.body.classList.add('align-right');
     }
+  }
+  else if (a === 'setScene'){
+    var sc = msg.value === 'map' ? 'map' : 'wallpaper';
+    document.body.classList.toggle('mode-map', sc === 'map');
+    document.body.classList.toggle('mode-wallpaper', sc === 'wallpaper');
+    layoutMetrics();
+    if (S.lines.length) positionToCurrent(true);
   }
   else if (a === 'setColor'){
     var c = msg.value;
-    /* [正文, 中央三行焦点色, 相邻焦点浅色, 已唱, 阴影] */
+    /* [正文, 中央焦点, 相邻焦点, 已唱, 阴影] — 正文与焦点色必须拉开色相 */
     var pal = {
-      white: ['#FFFFFF', '#5BA0FF', '#7EB6FF', 'rgba(255,255,255,.42)', '0 2px 12px rgba(0,0,0,.72)'],
-      black: ['#111111', '#1A5FD0', '#3D7FE0', 'rgba(17,17,17,.45)', '0 2px 10px rgba(255,255,255,.45)'],
-      blue:  ['#D0E4FF', '#3D8BFF', '#6BA8FF', 'rgba(91,160,255,.42)', '0 2px 12px rgba(0,0,0,.70)'],
-      green: ['#D8FFE8', '#12C86A', '#3DDC8A', 'rgba(61,255,154,.42)', '0 2px 12px rgba(0,0,0,.70)'],
-      amber: ['#FFF0CC', '#E09A12', '#FFC14D', 'rgba(255,193,77,.42)', '0 2px 12px rgba(0,0,0,.70)'],
-      pink:  ['#FFE0EF', '#E04090', '#FF7AB8', 'rgba(255,122,184,.42)', '0 2px 12px rgba(0,0,0,.70)']
+      white: ['#FFFFFF', '#0066FF', '#3D8FFF', 'rgba(255,255,255,.40)', '0 2px 12px rgba(0,0,0,.75)'],
+      black: ['#111111', '#FFB300', '#FFC84D', 'rgba(17,17,17,.42)', '0 2px 10px rgba(255,255,255,.5)'],
+      blue:  ['#E8F1FF', '#FF6B00', '#FF8F3D', 'rgba(90,150,230,.40)', '0 2px 12px rgba(0,0,0,.72)'],
+      green: ['#E8FFF2', '#E91E63', '#FF5C8A', 'rgba(40,180,100,.40)', '0 2px 12px rgba(0,0,0,.72)'],
+      amber: ['#FFF6E0', '#00BCD4', '#4DD0E1', 'rgba(200,140,20,.40)', '0 2px 12px rgba(0,0,0,.72)'],
+      pink:  ['#FFEAF4', '#00C853', '#69F0AE', 'rgba(200,80,140,.40)', '0 2px 12px rgba(0,0,0,.72)']
     };
     var p = pal[c];
     if (p) {
@@ -373,7 +392,13 @@ function positionToCurrent(instant){
   var stageH = stage.clientHeight;
   var lineCenter = S.cur * S.lineH + S.lineH * 0.5;
   var topMargin = stageH * 0.10;
-  var desired = Math.min(stageH * 0.5, topMargin + lineCenter);
+  var desired;
+  if (document.body.classList.contains('mode-map')) {
+    /* 地图：当前行沉在屏幕下部 72% 处，不挡上半屏路线 */
+    desired = stageH * 0.72;
+  } else {
+    desired = Math.min(stageH * 0.5, topMargin + lineCenter);
+  }
   var target = desired - lineCenter;
   if (instant){
     ly.classList.add('no-anim');
