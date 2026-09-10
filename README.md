@@ -1,13 +1,3 @@
----
-AIGC:
-  ContentProducer: '001191110102MAD55U9H0F10002'
-  ContentPropagator: '001191110102MAD55U9H0F10002'
-  Label: '1'
-  ProduceID: '43d55785-1ba2-4328-99f3-bc4cf5ec09da'
-  PropagateID: '43d55785-1ba2-4328-99f3-bc4cf5ec09da'
-  ReservedCode1: '814f8786-f443-49fc-b05b-932464bfe637'
-  ReservedCode2: '814f8786-f443-49fc-b05b-932464bfe637'
----
 
 # Icar03
 
