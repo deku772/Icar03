@@ -97,6 +97,12 @@ gradle assembleDebug
 git tag v2.4.0 && git push origin v2.4.0
 ```
 
+## 感谢支持
+
+如果这个项目对你有用，欢迎微信扫码赞赏（与 App 内一致）：
+
+![Mysa 赞赏码](app/src/main/res/drawable/wechat_tip.png)
+
 ## 许可
 
 [MIT License](LICENSE)

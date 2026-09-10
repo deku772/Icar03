@@ -98,18 +98,41 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        int pad = dp(24);
+        int pad = dp(20);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(C_BG);
+        scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(C_BG);
-        root.setPadding(pad, pad, pad, pad);
+        root.setPadding(pad, dp(16), pad, pad);
+        scroll.addView(root);
 
         root.addView(buildHeader());
-        root.addView(buildStatusCard());
+
+        /* 左：状态行；右：下载码 + 大图赞赏码 */
+        LinearLayout mainRow = new LinearLayout(this);
+        mainRow.setOrientation(LinearLayout.HORIZONTAL);
+        mainRow.setGravity(Gravity.TOP);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        mlp.topMargin = dp(14);
+        mainRow.setLayoutParams(mlp);
+
+        View status = buildStatusCard();
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, dp(360), 1.15f);
+        status.setLayoutParams(slp);
+        mainRow.addView(status);
+
+        View qr = buildQrCard();
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(0, dp(360), 1f);
+        qlp.leftMargin = dp(12);
+        qr.setLayoutParams(qlp);
+        mainRow.addView(qr);
+
+        root.addView(mainRow);
         root.addView(buildButtons());
-        root.addView(buildQrCard());
         root.addView(buildHelpCard());
-        setContentView(root);
+        setContentView(scroll);
 
         /* 启动时静默检查 GitHub Release 更新 */
         ui.postDelayed(() -> UpdateChecker.checkAndPrompt(this,
@@ -174,7 +197,7 @@ public class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.card_bg);
-        card.setPadding(dp(20), dp(16), dp(20), dp(16));
+        card.setPadding(dp(12), dp(8), dp(12), dp(8));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(20);
@@ -197,16 +220,16 @@ public class MainActivity extends Activity {
             TextView label = new TextView(this);
             label.setText(labels[i]);
             label.setTextColor(C_TEXT_DIM);
-            label.setTextSize(14);
+            label.setTextSize(12);
             LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
-                    dp(88), LinearLayout.LayoutParams.WRAP_CONTENT);
-            llp.leftMargin = dp(12);
+                    dp(72), LinearLayout.LayoutParams.WRAP_CONTENT);
+            llp.leftMargin = dp(8);
             label.setLayoutParams(llp);
             row.addView(label);
 
             TextView value = new TextView(this);
             value.setTextColor(C_TEXT);
-            value.setTextSize(15);
+            value.setTextSize(12);
             value.setSingleLine(false);
             value.setMaxLines(2);
             row.addView(value, new LinearLayout.LayoutParams(
@@ -300,12 +323,12 @@ public class MainActivity extends Activity {
     private void styleMiniButton(Button b) {
         b.setBackgroundResource(R.drawable.btn_ghost);
         b.setTextColor(C_PRIMARY);
-        b.setTextSize(15);
+        b.setTextSize(12);
         b.setAllCaps(false);
         b.setStateListAnimator(null);
-        b.setPadding(dp(12), 0, dp(12), 0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(84), dp(48));
-        lp.leftMargin = dp(6);
+        b.setPadding(dp(6), 0, dp(6), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(56), dp(40));
+        lp.leftMargin = dp(3);
         b.setLayoutParams(lp);
     }
 
@@ -343,15 +366,7 @@ public class MainActivity extends Activity {
         Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
         btnUpd.setText("检查更新（GitHub）");
-        btnUpd.setBackgroundResource(R.drawable.btn_ghost);
-        btnUpd.setTextColor(C_PRIMARY);
-        btnUpd.setTextSize(14);
-        btnUpd.setAllCaps(false);
-        btnUpd.setStateListAnimator(null);
-        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
-        ulp.topMargin = dp(8);
-        btnUpd.setLayoutParams(ulp);
+        styleButton(btnUpd, R.drawable.btn_primary, 0xFFFFFFFF, true);
         btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
                 BuildConfig.VERSION_NAME, false));
         box.addView(btnUpd);
@@ -365,67 +380,57 @@ public class MainActivity extends Activity {
         return box;
     }
 
-    /** 主界面直接露出：手机端下载码 + 微信赞赏码 */
+    /** 右侧卡片：上=手机下载码，下=微信赞赏大图 */
     private View buildQrCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundResource(R.drawable.card_bg);
-        card.setPadding(dp(16), dp(12), dp(16), dp(12));
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        clp.topMargin = dp(14);
-        card.setLayoutParams(clp);
-
-        TextView cap = new TextView(this);
-        cap.setText("扫码：下载手机端 · 赞赏支持");
-        cap.setTextColor(C_TEXT_DIM);
-        cap.setTextSize(13);
-        cap.setGravity(Gravity.CENTER);
-        card.addView(cap);
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_HORIZONTAL);
-        row.setPadding(0, dp(8), 0, 0);
+        row.setGravity(Gravity.CENTER_VERTICAL);
 
-        LinearLayout col1 = new LinearLayout(this);
-        col1.setOrientation(LinearLayout.VERTICAL);
-        col1.setGravity(Gravity.CENTER_HORIZONTAL);
         ImageView dl = new ImageView(this);
         try {
-            dl.setImageBitmap(QrEncoder.encode(PHONE_APK_URL, 4));
-        } catch (Exception ignored) {
-            dl.setImageResource(R.drawable.wechat_tip); /* 不应发生 */
-        }
-        col1.addView(dl, new LinearLayout.LayoutParams(dp(140), dp(140)));
-        TextView t1 = new TextView(this);
-        t1.setText("下载手机端");
-        t1.setTextColor(C_PRIMARY);
-        t1.setTextSize(12);
-        t1.setGravity(Gravity.CENTER);
-        col1.addView(t1);
-        row.addView(col1);
+            dl.setImageBitmap(QrEncoder.encode(PHONE_APK_URL, 5));
+        } catch (Exception ignored) {}
+        row.addView(dl, new LinearLayout.LayoutParams(dp(120), dp(120)));
 
-        LinearLayout col2 = new LinearLayout(this);
-        col2.setOrientation(LinearLayout.VERTICAL);
-        col2.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout tbox = new LinearLayout(this);
+        tbox.setOrientation(LinearLayout.VERTICAL);
+        tbox.setGravity(Gravity.CENTER_VERTICAL);
+        TextView t1 = new TextView(this);
+        t1.setText("扫码下载\n手机端");
+        t1.setTextColor(C_PRIMARY);
+        t1.setTextSize(14);
+        t1.setLineSpacing(dp(3), 1f);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tlp.leftMargin = dp(10);
+        t1.setLayoutParams(tlp);
+        tbox.addView(t1);
+        row.addView(tbox);
+        card.addView(row);
+
         ImageView tip = new ImageView(this);
         tip.setImageResource(R.drawable.wechat_tip);
         tip.setAdjustViewBounds(true);
         tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(dp(140), dp(140));
-        tipLp.leftMargin = dp(16);
+        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+        tipLp.topMargin = dp(8);
         tip.setLayoutParams(tipLp);
-        col2.addView(tip);
-        TextView t2 = new TextView(this);
-        t2.setText("微信赞赏");
-        t2.setTextColor(C_AMBER);
-        t2.setTextSize(12);
-        t2.setGravity(Gravity.CENTER);
-        col2.addView(t2);
-        row.addView(col2);
+        card.addView(tip);
 
-        card.addView(row);
+        TextView tipCap = new TextView(this);
+        tipCap.setText("Mysa 赞赏码");
+        tipCap.setTextColor(C_AMBER);
+        tipCap.setTextSize(13);
+        tipCap.setGravity(Gravity.CENTER);
+        tipCap.setPadding(0, dp(4), 0, 0);
+        card.addView(tipCap);
         return card;
     }
 
