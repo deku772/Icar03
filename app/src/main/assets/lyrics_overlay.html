@@ -18,11 +18,13 @@
    * 数据协议不变：IcarJS.onLyrics/onProgress/onCmd
    * ============================================================ */
   :root{
-    --fs: 34px; --fs-active: 46px; --fs-trans: 19px; --pad: 13px;
-    --motion: 240ms cubic-bezier(.22,.75,.18,1);
+    --fs: 34px; --fs-near: 38px; --fs-active: 46px; --fs-trans: 19px; --pad: 13px;
+    --line-h: 72px;
+    --motion: 280ms cubic-bezier(.22,.75,.18,1);
     --fg:#FFFFFF; --near:rgba(255,255,255,.66); --past:rgba(255,255,255,.26);
     --far:rgba(255,255,255,.44); --shadow:0 2px 10px rgba(0,0,0,.55);
     --dim:rgba(255,255,255,.45);
+    --align:center;
   }
   body.theme-light{
     --fg:#171B21; --near:rgba(20,27,35,.66); --past:rgba(20,27,35,.26);
@@ -41,19 +43,27 @@
   #lyrics{position:absolute;top:0;left:0;right:0;padding:46% 20px;
     will-change:transform;transition:transform var(--motion);}
   #lyrics.no-anim{transition:none;}
-  .line{padding:var(--pad) 0;color:var(--far);font-size:var(--fs);line-height:1.3;
-    font-weight:620;text-align:center;opacity:.92;
-    transition:transform var(--motion),opacity var(--motion) ease,color 160ms ease;}
-  .line .orig{display:block;}
-  .line .trans{display:none;margin-top:4px;font-size:var(--fs-trans);line-height:1.25;
+  /* 固定行高：当前行放大只改字号，不改 offsetTop，滚动不会抖 */
+  .line{
+    height:var(--line-h);padding:0;color:var(--far);font-size:var(--fs);
+    line-height:var(--line-h);font-weight:620;text-align:var(--align);
+    opacity:.92;overflow:visible;white-space:nowrap;
+    transition:opacity var(--motion) ease,color 160ms ease;
+  }
+  .line .orig{display:inline-block;vertical-align:middle;
+    transition:font-size var(--motion),color var(--motion);}
+  .line .trans{display:none;margin-top:2px;font-size:var(--fs-trans);line-height:1.25;
     font-weight:560;opacity:.85;}
+  body.has-trans .line.has-trans{line-height:calc(var(--line-h) * 0.72);}
   body.has-trans .line.has-trans .trans{display:block;}
   .line.near{color:var(--near);}
   .line.past{color:var(--past);}
-  .line.active{color:var(--fg);font-weight:820;font-size:var(--fs-active);
-    text-shadow:var(--shadow);}
+  /* 中间三行分级放大：当前最大，相邻次之——固定行高下只改字号，不重排 */
+  .line.near .orig{font-size:var(--fs-near);}
+  .line.active{color:var(--fg);font-weight:820;}
+  .line.active .orig{font-size:var(--fs-active);text-shadow:var(--shadow);}
   .line.active .trans{color:var(--fg);font-weight:620;opacity:.84;}
-  body.paused .line.active{animation:breathe 2.4s ease-in-out infinite;}
+  body.paused .line.active .orig{animation:breathe 2.4s ease-in-out infinite;}
   @keyframes breathe{50%{opacity:.55;}}
   #hint{position:fixed;top:2.4vh;left:0;right:0;text-align:center;color:var(--dim);
     font-size:17px;line-height:1.7;transition:opacity .3s;}
@@ -96,6 +106,7 @@ var S = {
   lines:[],            /* [{t,txt,trans}] 行级同步（忽略逐字标签） */
   cur:-1,
   offsetMs:0,          /* 用户歌词偏移：正=提前（词晚于声时用），负=延后 */
+  lineH:72,            /* 固定行高缓存，滚动定位用 */
   switchGeneration:0,  /* 换歌/重建代数，防止旧动画回调污染新 DOM */
   connected:false, advState:'', rxFrag:0, rxFrame:0, rxProg:0, rxBrief:'',
   demo:false, loop:true
@@ -228,12 +239,37 @@ function handleCmd(msg){
       else positionToCurrent(true);
     }
   }
+  else if (a === 'setAlign'){
+    var al = msg.value;
+    if (al === 'left' || al === 'center' || al === 'right') {
+      document.documentElement.style.setProperty('--align', al);
+    }
+  }
+  else if (a === 'setColor'){
+    var c = msg.value;
+    var pal = {
+      white: ['#FFFFFF', 'rgba(255,255,255,.66)', 'rgba(255,255,255,.26)', 'rgba(255,255,255,.44)', '0 2px 10px rgba(0,0,0,.55)'],
+      blue:  ['#7EB6FF', 'rgba(126,182,255,.70)', 'rgba(126,182,255,.28)', 'rgba(126,182,255,.46)', '0 2px 12px rgba(40,90,180,.55)'],
+      green: ['#7DFFB0', 'rgba(125,255,176,.70)', 'rgba(125,255,176,.28)', 'rgba(125,255,176,.46)', '0 2px 12px rgba(20,120,70,.50)'],
+      amber: ['#FFD27A', 'rgba(255,210,122,.70)', 'rgba(255,210,122,.28)', 'rgba(255,210,122,.46)', '0 2px 12px rgba(140,90,20,.50)'],
+      pink:  ['#FF9EC8', 'rgba(255,158,200,.70)', 'rgba(255,158,200,.28)', 'rgba(255,158,200,.46)', '0 2px 12px rgba(140,40,90,.50)']
+    };
+    var p = pal[c];
+    if (p) {
+      var rs = document.documentElement.style;
+      rs.setProperty('--fg', p[0]);
+      rs.setProperty('--near', p[1]);
+      rs.setProperty('--past', p[2]);
+      rs.setProperty('--far', p[3]);
+      rs.setProperty('--shadow', p[4]);
+    }
+  }
   else if (a === 'ping'){ notify({ event:'pong', data:{ t:Date.now() } }); }
   syncPanel();
 }
 
 window.IcarJS = {
-  version: '2.1.0',
+  version: '2.2.1',
   onLyrics:   function(json){ var m=safeParse(json); if(m) handleLyrics(m); },
   onProgress: function(json){ var m=safeParse(json); if(m) handleProgress(m); },
   onCmd:      function(json){ var m=safeParse(json); if(m) handleCmd(m); }
@@ -288,12 +324,16 @@ function updateVisibility(){
 function layoutMetrics(){
   var h = window.innerHeight;
   var fs = clamp(h*0.042, 24, 42);
+  var fsA = Math.round(fs*1.34);
+  var fsN = Math.round(fs*1.12);
   var rs = document.documentElement.style;
   rs.setProperty('--fs', Math.round(fs)+'px');
-  rs.setProperty('--fs-active', Math.round(fs*1.34)+'px');
+  rs.setProperty('--fs-near', fsN+'px');
+  rs.setProperty('--fs-active', fsA+'px');
   rs.setProperty('--fs-trans', Math.round(fs*0.55)+'px');
-  rs.setProperty('--pad', Math.round(fs*0.38)+'px');
-  /* 行字号变化影响行高，hint 字号随之 */
+  /* 固定行高：按放大字号留足，避免视觉裁切；切换高亮不改变 offsetTop */
+  S.lineH = Math.ceil(fsA * 1.28 + Math.round(fs*0.38) * 2);
+  rs.setProperty('--line-h', S.lineH+'px');
   hint.style.fontSize = Math.round(clamp(h*0.024, 14, 20))+'px';
 }
 
@@ -324,43 +364,11 @@ function setLyricsTranslate(y){
   ly.style.transform = 'translate3d(0,'+y+'px,0)';
 }
 
-/** 单行 FLIP：记录当前位置 → 应用新类 → 从旧位置 transform 补间到新布局 */
-function flipLines(nodes, indices, before){
-  var moved = [];
-  for (var k=0;k<indices.length;k++){
-    var i = indices[k];
-    if (i<0 || i>=nodes.length) continue;
-    var b = before[i], node = nodes[i];
-    if (!b) continue;
-    var a = node.getBoundingClientRect();
-    var dy = b.top - a.top;
-    var scale = (a.height>0 && b.height>0) ? (b.height/a.height) : 1;
-    if (Math.abs(dy)<0.5 && Math.abs(scale-1)<0.004) continue;
-    node.style.transition = 'none';
-    node.style.transformOrigin = '50% 0';
-    node.style.transform = 'translate3d(0,'+dy.toFixed(2)+'px,0)'
-        + (Math.abs(scale-1)>=0.004 ? ' scale('+scale.toFixed(4)+')' : '');
-    moved.push(node);
-  }
-  if (!moved.length) return;
-  ly.offsetHeight;   /* 强制 reflow，锁定起始 transform */
-  var gen = S.switchGeneration;
-  requestAnimationFrame(function(){
-    if (gen !== S.switchGeneration) return;
-    for (var m=0;m<moved.length;m++){
-      moved[m].style.transition = '';
-      moved[m].style.transform = '';
-    }
-  });
-}
-
-/** 把当前行滚到屏幕垂直中心；instant=true 跳过动画（换歌/seek） */
+/** 把当前行滚到屏幕垂直中心；instant=true 跳过动画（换歌/seek）。
+ *  固定行高后 target 只与行号有关，不再读 offsetTop，避免放大重排导致跳动。 */
 function positionToCurrent(instant){
   if (S.cur < 0) return;
-  var nodes = ly.children;
-  var node = nodes[S.cur];
-  if (!node) return;
-  var target = stage.clientHeight*0.5 - node.offsetTop - node.offsetHeight*0.5;
+  var target = stage.clientHeight * 0.5 - (S.cur * S.lineH + S.lineH * 0.5);
   if (instant){
     ly.classList.add('no-anim');
     setLyricsTranslate(target);
@@ -374,21 +382,9 @@ function positionToCurrent(instant){
 function switchTo(idx){
   var prev = S.cur;
   S.cur = idx;
-  var nodes = ly.children;
   var bigJump = prev < 0 || Math.abs(idx-prev) > 1;
-  if (bigJump){
-    applyStates(prev, idx);
-    positionToCurrent(true);
-    return;
-  }
-  /* 相邻切行：对字号变化的两行（旧 active / 新 active）做 FLIP */
-  var before = {};
-  [prev, idx].forEach(function(i){
-    if (i>=0 && i<nodes.length) before[i] = nodes[i].getBoundingClientRect();
-  });
   applyStates(prev, idx);
-  positionToCurrent(false);
-  flipLines(nodes, [prev, idx], before);
+  positionToCurrent(bigJump);
 }
 
 /* ---------------- 主循环（轻量：每帧仅二分比较，不触发布局/绘制） ---------------- */

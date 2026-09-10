@@ -24,12 +24,14 @@ public class AdbReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String a = intent.getAction();
         if (ACTION_START.equals(a)) {
+            OverlayService.setAutoStart(true);
             if (!android.provider.Settings.canDrawOverlays(context)) return;
             try {
                 context.startForegroundService(new Intent(context, OverlayService.class));
                 context.startForegroundService(new Intent(context, BleService.class));
             } catch (Exception ignored) {}
         } else if (ACTION_STOP.equals(a)) {
+            OverlayService.setAutoStart(false);
             context.stopService(new Intent(context, OverlayService.class));
             context.stopService(new Intent(context, BleService.class));
         } else if (ACTION_SET_PHONE.equals(a)) {

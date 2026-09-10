@@ -8,6 +8,7 @@
     <!-- BLE 扫描在 targetSdk<=30 需要，运行时申请 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -52,6 +53,16 @@
             <intent-filter>
                 <action android:name="com.icarme.lyrics.phone.START" />
                 <action android:name="com.icarme.lyrics.phone.STOP" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 开机/覆盖安装自启（手动停止后不再拉起） -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
     </application>
