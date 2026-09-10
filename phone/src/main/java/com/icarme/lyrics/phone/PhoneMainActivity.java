@@ -237,6 +237,14 @@ public class PhoneMainActivity extends Activity {
         tvCrash.setPadding(0, dp(6), 0, 0);
         tvCrash.setVisibility(View.GONE);
         card.addView(tvCrash);
+
+        TextView repo = new TextView(this);
+        repo.setText("项目地址：github.com/deku772/Icar03");
+        repo.setTextColor(C_PRIMARY);
+        repo.setTextSize(12);
+        repo.setGravity(Gravity.CENTER);
+        repo.setPadding(0, dp(10), 0, dp(4));
+        card.addView(repo);
         return card;
     }
 
