@@ -53,6 +53,9 @@ public class OverlayService extends Service {
     private boolean localReady = false;
     private long lyricsAt = 0;         /* 最近一次换歌时刻（换歌保护窗，防旧快照污染新曲） */
     private Runnable localTimelineTask;
+    private final SceneDetector scene = new SceneDetector();
+    private String sceneMode = SceneDetector.MODE_WALLPAPER;
+    private long lastScenePoll = 0;
 
     /* 歌词时间偏移（用户可调，持久化）：正值=提前，负值=延后，作用于最终 positionMs */
     private static final String PREFS = "icarlyrics";
@@ -147,6 +150,16 @@ public class OverlayService extends Service {
         } catch (Exception ignored) {}
     }
 
+    static void pushScene(String mode) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("type", "cmd");
+            o.put("action", "setScene");
+            o.put("value", mode);
+            push(o.toString());
+        } catch (Exception ignored) {}
+    }
+
     @Override
     public IBinder onBind(Intent intent) { return null; }
 
@@ -188,6 +201,7 @@ public class OverlayService extends Service {
         localTimelineTask = new Runnable() {
             @Override public void run() {
                 pollLocalTimeline();
+                pollScene();
                 ui.postDelayed(this, 1000);
             }
         };
@@ -198,6 +212,18 @@ public class OverlayService extends Service {
         if (localTimelineTask != null) {
             ui.removeCallbacks(localTimelineTask);
             localTimelineTask = null;
+        }
+    }
+
+    /** 每 2s 检测壁纸/地图，变化才下发 */
+    private void pollScene() {
+        long now = System.currentTimeMillis();
+        if (now - lastScenePoll < 2000) return;
+        lastScenePoll = now;
+        String m = scene.poll(this);
+        if (!m.equals(sceneMode)) {
+            sceneMode = m;
+            pushScene(m);
         }
     }
 

@@ -650,25 +650,30 @@ public class MainActivity extends Activity {
             return;
         }
 
-        /* 1) 尽力用系统 API 开热点；2) 读 SoftAP；3) 仍无则打开原生热点设置页 */
+        /* 1) 读系统 SoftAP；2) 读不到则用可写 API 生成并写入自己的 SSID/密码；3) 再不行开设置页 */
         HotspotInfo ap = HotspotInfo.read(this);
-        if (!ap.apEnabled) {
+        if (!ap.valid()) {
+            HotspotInfo gen = HotspotInfo.generateAndSetAp(this);
+            if (gen != null && gen.valid()) {
+                ap = gen;
+                showHint("已写入热点 " + ap.ssid + "，请用手机扫码连接");
+            } else {
+                HotspotInfo.tryEnableAp(this);
+                HotspotInfo.openTetherSettings(this);
+            }
+        } else if (!ap.apEnabled) {
             HotspotInfo.tryEnableAp(this);
-            ui.postDelayed(() -> {
-                HotspotInfo again = HotspotInfo.read(this);
-                if (!again.apEnabled) HotspotInfo.openTetherSettings(this);
-            }, 400);
         }
 
         String ip = ApkHttpServer.findLanIp();
         if (ip == null) {
             showHint("未找到内网 IP，正在打开系统热点设置…");
             HotspotInfo.openTetherSettings(this);
-            ui.postDelayed(this::showInstallQr, 1500);
+            ui.postDelayed(this::showInstallQr, 1800);
             return;
         }
         String url = ApkHttpServer.downloadUrl(ip);
-        ap = HotspotInfo.read(this);
+        if (!ap.valid()) ap = HotspotInfo.read(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
