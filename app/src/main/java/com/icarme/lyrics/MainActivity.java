@@ -309,11 +309,13 @@ public class MainActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        blp.topMargin = dp(20);
+        blp.topMargin = dp(18);
         box.setLayoutParams(blp);
 
-        btnScan = new Button(this);
-        btnScan.setText("扫描发现手机");
+        /* 统一蓝底主按钮：高度/间距一致，扫描 → 装机 → 启停 */
+        btnScan = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnScan.setText("1 · 扫描发现手机");
         styleButton(btnScan, R.drawable.btn_primary, 0xFFFFFFFF, true);
         btnScan.setOnClickListener(v -> scanPhones());
         box.addView(btnScan);
@@ -322,46 +324,37 @@ public class MainActivity extends Activity {
         tvScanHint.setTextColor(C_TEXT_DIM);
         tvScanHint.setTextSize(13);
         tvScanHint.setGravity(Gravity.CENTER);
-        tvScanHint.setPadding(0, dp(8), 0, dp(8));
+        tvScanHint.setPadding(0, dp(6), 0, dp(6));
         tvScanHint.setVisibility(View.GONE);
         box.addView(tvScanHint);
 
-        btnService = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnService.setText("启动歌词悬浮");
-        styleButton(btnService, R.drawable.btn_ghost, C_PRIMARY, false);
-        btnService.setOnClickListener(v -> toggleService());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(54));
-        lp.topMargin = dp(12);
-        btnService.setLayoutParams(lp);
-        box.addView(btnService);
-
         Button btnInstall = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnInstall.setText("热点扫码装手机端");
+        btnInstall.setText("2 · 热点扫码装手机端");
         styleButton(btnInstall, R.drawable.btn_primary, 0xFFFFFFFF, true);
         btnInstall.setOnClickListener(v -> showInstallQr());
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(58));
-        ilp.topMargin = dp(12);
-        btnInstall.setLayoutParams(ilp);
         box.addView(btnInstall);
+
+        btnService = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnService.setText("3 · 启动歌词悬浮");
+        styleButton(btnService, R.drawable.btn_primary, 0xFFFFFFFF, true);
+        btnService.setOnClickListener(v -> toggleService());
+        box.addView(btnService);
         return box;
     }
 
     private void styleButton(Button b, int bg, int textColor, boolean big) {
         b.setBackgroundResource(bg);
         b.setTextColor(textColor);
-        b.setTextSize(big ? 18 : 16);
+        b.setTextSize(17);
         b.setAllCaps(false);
         b.setStateListAnimator(null);
-        b.setPadding(dp(20), 0, dp(20), 0);
-        if (big) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, dp(58));
-            b.setLayoutParams(lp);
-        }
+        b.setPadding(dp(18), 0, dp(18), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
+        lp.topMargin = dp(12);
+        b.setLayoutParams(lp);
     }
 
     private static final String PREFS = "icarlyrics";
@@ -497,7 +490,7 @@ public class MainActivity extends Activity {
                 : "blue".equals(col) ? "蓝" : "green".equals(col) ? "绿"
                 : "amber".equals(col) ? "琥珀" : "粉");
 
-        btnService.setText(svc ? "停止歌词悬浮" : "启动歌词悬浮");
+        btnService.setText(svc ? "3 · 停止歌词悬浮" : "3 · 启动歌词悬浮");
     }
 
     /* ---------------- 扫描发现手机 ---------------- */
@@ -682,10 +675,15 @@ public class MainActivity extends Activity {
         root.setPadding(dp(16), dp(8), dp(16), dp(4));
 
         TextView tip = new TextView(this);
-        tip.setText(ap.valid()
-                ? ("热点 " + ap.ssid + (ap.apEnabled ? " · 已开启" : " · 请确认已开启")
-                + "\n手机扫码：入网 + 下载安装，一步到位")
-                : "未能读到热点，请打开系统热点后点「刷新」");
+        if (ap.valid()) {
+            tip.setText((ap.fromMemory ? "热点（上次手填）：" : "热点：") + ap.ssid
+                    + (ap.apEnabled ? " · 已开启" : " · 请确认已开启")
+                    + "\n手机扫码一步：入网 + 下载安装");
+        } else {
+            tip.setText("系统读不到热点 SSID（腾讯车联可能自管 AP）。\n"
+                    + "请：打开系统热点 → 手机连上后填 SSID/密码点刷新；\n"
+                    + "或已连同一 Wi-Fi 时直接扫右侧下载码。");
+        }
         tip.setTextColor(C_TEXT_DIM);
         tip.setTextSize(13);
         tip.setPadding(0, 0, 0, dp(6));
@@ -730,7 +728,16 @@ public class MainActivity extends Activity {
         btnWifi.setTextSize(13);
         btnWifi.setAllCaps(false);
         btnWifi.setStateListAnimator(null);
-        left.addView(btnWifi);
+        Button btnOpenAp = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnOpenAp.setText("打开系统热点设置");
+        btnOpenAp.setBackgroundResource(R.drawable.btn_ghost);
+        btnOpenAp.setTextColor(C_PRIMARY);
+        btnOpenAp.setTextSize(13);
+        btnOpenAp.setAllCaps(false);
+        btnOpenAp.setStateListAnimator(null);
+        left.addView(btnOpenAp);
+        btnOpenAp.setOnClickListener(v -> HotspotInfo.openTetherSettings(this));
         row.addView(left);
 
         final ImageView qrView = new ImageView(this);
@@ -759,7 +766,11 @@ public class MainActivity extends Activity {
             }
         };
         render[0].run();
-        btnWifi.setOnClickListener(v -> render[0].run());
+        btnWifi.setOnClickListener(v -> {
+            HotspotInfo.save(this, etSsid.getText().toString().trim(), etPass.getText().toString());
+            render[0].run();
+            showHint("已保存热点信息，下次打开自动带上");
+        });
 
         installDialog = new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
                 android.R.style.Theme_Material_Dialog))
