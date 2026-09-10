@@ -54,7 +54,7 @@
 
 /* ---------------- 状态 ---------------- */
 var S = {
-  mode: 'top',            // top 顶栏 | wallpaper 壁纸
+  mode: 'wallpaper',      // top 顶栏(单行) | wallpaper 壁纸(10行滚动,当前行正中)
   theme: 'dark',          // dark | light
   playing: false,
   positionMs: 0,          // 最近一次上报进度
@@ -387,7 +387,7 @@ function drawTop(line, now, alpha){
 function drawRollLine(line, now, x, y, fs, color, mode){
   var font = 'bold '+Math.round(fs)+'px '+FONT;
   ctx.font = font;
-  ctx.textAlign = 'left';
+  ctx.textAlign = 'center';                 /* 上下行与当前行统一居中对齐 */
   var tw = ctx.measureText(line.txt).width;
   var maxW = (mode==='top') ? W*0.9 : W*0.86;
   if (tw > maxW && tw > 0){
@@ -401,7 +401,6 @@ function drawRollLine(line, now, x, y, fs, color, mode){
     ctx.fillStyle = color;
     ctx.fillText(line.txt, x, y);
   }
-  ctx.textAlign = 'center';
 }
 
 function drawTop(line, now, alpha){
@@ -421,17 +420,20 @@ function drawTop(line, now, alpha){
 }
 
 /**
- * 壁纸模式：多行歌谱滚动（当前行 + 上2下4，共7行）
- * 当前行大号高亮 + 逐字卡拉OK变色，其余行灰色小一号，随进度平滑滚动。
+ * 壁纸模式：10 行歌谱滚动（当前行 + 上4下5），当前行垂直居中。
+ * 当前行大号高亮 + 逐字卡拉OK变色；远近行渐隐，随进度平滑滚动。
  */
 function drawWallpaper(line, now, idx, alpha){
   var th = THEME[S.theme];
-  var up = 2, down = 4;
+  var up = 4, down = 5;                       /* 共 10 行，当前行正中 */
   var fs = fontSizeOf('wallpaper');
-  var subFs = Math.round(fs*0.52);          /* 非当前行字号 */
-  var gap = Math.round(fs*0.5);             /* 行距 */
-  var rowH = fs*0.78;
-  var y0 = H*0.5 - rowH*0.5;                /* 当前行基准线 */
+  var subFs = Math.round(fs*0.5);             /* 非当前行字号 */
+  var hasTrans = !!line.trans;                /* 当前行有翻译：额外占 0.6 行位 */
+  var totalRows = up + down + 1 + (hasTrans ? 0.6 : 0);
+  var rowH = Math.max(fs*0.9, subFs*1.42);    /* 行距：容纳大号当前行 */
+  rowH = Math.min(rowH, H*0.92/totalRows);    /* 屏幕不够时整体收缩 */
+  var y0 = H*0.5 - rowH*0.5;                  /* 当前行基线 = 屏幕垂直中心 */
+  var transShift = hasTrans ? rowH*0.6 : 0;   /* 翻译行位，下方歌词整体下移 */
 
   /* 当前行：大号 + 逐字卡拉OK + 微发光 */
   var lay = getLayout(line, 'wallpaper');
@@ -440,28 +442,32 @@ function drawWallpaper(line, now, idx, alpha){
   ctx.shadowColor = th.shadow; ctx.shadowBlur = 10;
   paintKaraoke(line, now, x0, y0, lay, th);
   ctx.shadowBlur = 0;
-  /* 当前行翻译（若有） */
-  if (line.trans){
-    drawTextFit(line.trans, W/2, y0 + lay.fs*0.72,
-      Math.round(lay.fs*0.5)+'px '+FONT, th.sub, W*0.8);
+  /* 当前行翻译（若有）：紧贴当前行下方 */
+  if (hasTrans){
+    drawTextFit(line.trans, W/2, y0 + fs*0.78,
+      Math.round(fs*0.46)+'px '+FONT, th.sub, W*0.8);
   }
 
-  /* 上方 2 行（已唱，暗） */
+  /* 远近渐隐系数：第 1~5 行位 alpha 递减 */
+  var FADE = [1, .84, .68, .54, .42];
+
+  /* 上方 4 行（已唱，暗 + 越远越淡） */
   for (var u=1; u<=up; u++){
     var li = idx-u;
     if (li < 0) continue;
-    var l = S.lines[li];
     var yy = y0 - rowH*u;
-    drawRollLine(l, now, W/2, yy, subFs, th.next, 'wallpaper');
+    if (yy < subFs*0.5) continue;             /* 越出屏顶不画 */
+    ctx.globalAlpha = alpha * FADE[u];
+    drawRollLine(S.lines[li], now, W/2, yy, subFs, th.next, 'wallpaper');
   }
-  /* 下方 4 行（未唱，稍亮） */
-  var upColor = th.sub;
+  /* 下方 5 行（未唱，稍亮 + 渐隐，有翻译时整体下移让位） */
   for (var d=1; d<=down; d++){
     var di = idx+d;
     if (di >= S.lines.length) continue;
-    var dl = S.lines[di];
-    var dy = y0 + rowH*d;
-    drawRollLine(dl, now, W/2, dy, subFs, upColor, 'wallpaper');
+    var dy = y0 + rowH*d + transShift;
+    if (dy > H - subFs*0.2) continue;         /* 越出屏底不画 */
+    ctx.globalAlpha = alpha * FADE[Math.min(d, FADE.length-1)];
+    drawRollLine(S.lines[di], now, W/2, dy, subFs, th.sub, 'wallpaper');
   }
   ctx.globalAlpha = 1;
 }

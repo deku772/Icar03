@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- BLE 扫描发现手机（Android 9 需要定位运行时权限，ADB 授予） -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -47,13 +49,14 @@
             </intent-filter>
         </receiver>
 
-        <!-- ADB 直控（v1.8.2）：am broadcast -a com.icarme.lyrics.START/STOP -->
+        <!-- ADB 直控（v2.0）：am broadcast -a com.icarme.lyrics.START/STOP/SET_PHONE -->
         <receiver
             android:name=".AdbReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.icarme.lyrics.START" />
                 <action android:name="com.icarme.lyrics.STOP" />
+                <action android:name="com.icarme.lyrics.SET_PHONE" />
             </intent-filter>
         </receiver>
     </application>
