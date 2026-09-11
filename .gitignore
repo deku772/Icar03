@@ -3,3 +3,10 @@
 build/
 .gradle/
 local.properties
+# 本地笔记不进公开仓库
+notes/
+private/
+analysis-report.md
+BLE连接问题诊断交接-*.md
+bluetooth-lyrics-plan.md
+记忆导出_*.md
