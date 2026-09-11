@@ -160,6 +160,29 @@ public class OverlayService extends Service {
         } catch (Exception ignored) {}
     }
 
+    private static final String KEY_DEBUG = "overlay_debug";
+
+    static boolean isDebug() {
+        return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_DEBUG, false);
+    }
+
+    static void setDebug(boolean on) {
+        IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_DEBUG, on).apply();
+        pushDebug(on);
+    }
+
+    static void pushDebug(boolean on) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("type", "cmd");
+            o.put("action", "setDebug");
+            o.put("value", on);
+            push(o.toString());
+        } catch (Exception ignored) {}
+    }
+
     @Override
     public IBinder onBind(Intent intent) { return null; }
 
@@ -354,6 +377,7 @@ public class OverlayService extends Service {
                     pushOffset(getOffsetMs());
                     pushAlign(getAlign());
                     pushColor(getColor());
+                    pushDebug(isDebug());
                 }
             }
         });

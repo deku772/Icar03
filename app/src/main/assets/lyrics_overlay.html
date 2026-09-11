@@ -130,7 +130,8 @@ var S = {
   switchGeneration:0,  /* 换歌/重建代数，防止旧动画回调污染新 DOM */
   connected:false, advState:'', rxFrag:0, rxFrame:0, rxProg:0, rxBrief:'',
   demo:false, loop:true,
-  lastActiveAt:0, idleHideMs:10000, idleHidden:false
+  lastActiveAt:0, idleHideMs:10000, idleHidden:false,
+  debug:false
 };
 
 var FONT = '"MiSans","HarmonyOS Sans SC","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif';
@@ -282,6 +283,10 @@ function handleCmd(msg){
     layoutMetrics();
     if (S.lines.length) positionToCurrent(true);
   }
+  else if (a === 'setDebug'){
+    S.debug = !!msg.value;
+    updateVisibility();
+  }
   else if (a === 'setColor'){
     var c = msg.value;
     /* [正文, 中央焦点, 相邻焦点, 已唱, 阴影] — 正文与焦点色必须拉开色相 */
@@ -348,6 +353,13 @@ function updateVisibility(){
   var has = S.lines.length > 0;
   document.body.classList.toggle('no-lyrics', !has);
   if (!has){
+    /* 默认静默：无歌词时不显示等待/分片调试；仅 debug 开时才展示 */
+    if (!S.debug && !S.demo){
+      hint.innerHTML = '';
+      hint.style.opacity = '0';
+      return;
+    }
+    hint.style.opacity = '';
     var msg;
     if (S.connected) msg = '已连接手机 · 等待放歌…';
     else if (S.advState) msg = S.advState;

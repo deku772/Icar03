@@ -382,6 +382,17 @@ public class MainActivity extends Activity {
         btnMirror.setLayoutParams(mlp2);
         btnMirror.setOnClickListener(v -> showMirrorDownloadDialog());
         box.addView(btnMirror);
+
+        final CheckBox cbDbg = new CheckBox(this);
+        cbDbg.setText("悬浮调试信息（连接提示 / 分片统计）");
+        cbDbg.setTextColor(C_TEXT_DIM);
+        cbDbg.setTextSize(13);
+        cbDbg.setChecked(OverlayService.isDebug());
+        cbDbg.setOnCheckedChangeListener((bv, checked) -> {
+            OverlayService.setDebug(checked);
+            showHint(checked ? "已开启悬浮调试" : "已关闭悬浮调试");
+        });
+        box.addView(cbDbg);
         return box;
     }
 
