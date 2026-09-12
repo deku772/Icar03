@@ -68,7 +68,14 @@ public class PhoneMainActivity extends Activity {
         root.addView(buildLrcCard());
         setContentView(scroll);
 
+        /* 打开 App 默认拉起推送服务（手动停止过则不自启） */
+        autoStartServiceIfAllowed();
+
         /* 仅手动检查更新 */
+
+        /* 稍后再刷一次，覆盖服务刚拉起的异步状态 */
+        ui.postDelayed(this::refreshStatus, 400);
+        ui.postDelayed(this::refreshStatus, 1200);
 
         /* 实时监控：每秒刷新链路状态 */
         ui.postDelayed(new Runnable() {
@@ -455,7 +462,19 @@ public class PhoneMainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        autoStartServiceIfAllowed();
         refreshStatus();
+    }
+
+    /** 打开/回到前台时：若未手动停服且服务未在跑，则启动推送服务 */
+    private void autoStartServiceIfAllowed() {
+        if (PlaybackService.running) return;
+        if (!PlaybackService.isAutoStart()) return;
+        try {
+            startForegroundService(new Intent(this, PlaybackService.class));
+        } catch (Exception e) {
+            IcarPhoneApp.saveCrash(Thread.currentThread(), e);
+        }
     }
 
     private void setDot(int row, int color) {
@@ -504,8 +523,12 @@ public class PhoneMainActivity extends Activity {
 
         setDot(R_FETCH, m.fetchState.startsWith("已获取") ? C_GREEN
                 : m.fetchState.equals("未找到") ? C_AMBER : 0xFF4B5563);
-        rowValues[R_FETCH].setText(m.fetchState.isEmpty() ? "—" : m.fetchState
-                + (m.fetchSource.isEmpty() ? "" : "（" + m.fetchSource + "）"));
+        String fetchTxt = m.fetchState.isEmpty() ? "—" : m.fetchState
+                + (m.fetchSource.isEmpty() ? "" : "（" + m.fetchSource + "）");
+        if (m.fetchState.equals("未找到") && m.fetchError != null && !m.fetchError.isEmpty()) {
+            fetchTxt += " · " + m.fetchError;
+        }
+        rowValues[R_FETCH].setText(fetchTxt);
 
         rowValues[R_STATS].setText("歌词 " + m.pushCount + " · 进度 " + m.progressCount
                 + " · ACK " + m.writeAck

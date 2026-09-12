@@ -67,6 +67,8 @@ class BlePeripheral {
 
     private int mtu = 20;
     private String state = "idle";
+    /** 未播放静默：暂停广播并踢掉车机，恢复播放后再广播（省电、避免无意义连接） */
+    private boolean idlePaused = false;
     private final Set<BluetoothDevice> connectedDevs = new HashSet<>();
     private final Set<BluetoothDevice> subscribedDevs = new HashSet<>();
 
@@ -89,6 +91,8 @@ class BlePeripheral {
     boolean hasAnyClient() {
         return gattServer != null && !connectedDevs.isEmpty();
     }
+
+    boolean isIdlePaused() { return idlePaused; }
 
     /** Notify 队列统计（监控台展示） */
     BleWriteQueue.Stats writeStats() {
@@ -136,12 +140,43 @@ class BlePeripheral {
             svc.addCharacteristic(chCmd);
             gattServer.addService(svc);
 
+            idlePaused = false;
             startAdvertising(adapter);
             setState("idle", "手机端就绪，等待车机扫描连接…");
         } catch (Exception e) {
             Log.e(TAG, "start failed", e);
             setState("error", "服务异常: " + e.getClass().getSimpleName());
         }
+    }
+
+    /**
+     * 未播放静默：停广播 + 断开车机，避免手机不在放歌时仍与车机维持无线链路。
+     * GATT Server 保持打开，恢复播放后只需重新广播。
+     */
+    void pauseForIdle() {
+        if (gattServer == null || idlePaused) return;
+        idlePaused = true;
+        main.removeCallbacks(restartAdvTask);
+        notifyQueue.clear();
+        try {
+            for (BluetoothDevice d : new HashSet<>(connectedDevs)) {
+                try { gattServer.cancelConnection(d); } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+        connectedDevs.clear();
+        subscribedDevs.clear();
+        if (advertiser != null) {
+            try { advertiser.stopAdvertising(advCb); } catch (Exception ignored) {}
+        }
+        setState("idle", "未播放，已暂停广播");
+    }
+
+    /** 恢复播放：重新开始可连接广播，等车机扫描重连 */
+    void resumeFromIdle() {
+        if (gattServer == null || !idlePaused) return;
+        idlePaused = false;
+        startAdvertising();
+        setState("idle", "已恢复广播，等待车机连接…");
     }
 
     private void addCccd(BluetoothGattCharacteristic ch) {
@@ -155,6 +190,7 @@ class BlePeripheral {
      *  不用 isMultipleAdvertisementSupported() 做闸门（部分机型误报 false），
      *  直接尝试，失败由回调日志可见。 */
     private void startAdvertising(BluetoothAdapter adapter) {
+        if (idlePaused) return;
         try {
             if (advertiser == null) advertiser = adapter.getBluetoothLeAdvertiser();
             Log.i(TAG, "advertiser=" + advertiser
@@ -196,13 +232,13 @@ class BlePeripheral {
         }
         @Override public void onStartFailure(int code) {
             Log.w(TAG, "advertising failed: " + code);
-            if (advertiser == null || gattServer == null) return;
+            if (advertiser == null || gattServer == null || idlePaused) return;
             /* 广播失败按 5s 周期重试（部分栈启动早期会暂时失败） */
             main.postDelayed(this::retryAdvertise, 5000);
         }
 
         private void retryAdvertise() {
-            if (advertiser == null || gattServer == null) return;
+            if (advertiser == null || gattServer == null || idlePaused) return;
             try {
                 advertiser.stopAdvertising(advCb);
             } catch (Exception ignored) {}
@@ -308,13 +344,17 @@ class BlePeripheral {
                 Log.i(TAG, "client disconnected: " + device.getAddress());
                 if (connectedDevs.isEmpty()) {
                     notifyQueue.clear();
-                    setState("idle", "车机已断开，等待重连");
-                    /* v2.0.1 关键修复：Android BLE 在连接建立时会自动暂停可连接广播，
-                     * 断开后不会自动恢复——必须重新 startAdvertising，否则车机永远连不回。
-                     * （车机重启/车机App重装/超距断连都会触发此路径）。
-                     * 延迟 800ms 让底层栈先完成链路清理。 */
-                    main.removeCallbacks(restartAdvTask);
-                    main.postDelayed(restartAdvTask, 800);
+                    if (idlePaused) {
+                        setState("idle", "未播放，已暂停广播");
+                    } else {
+                        setState("idle", "车机已断开，等待重连");
+                        /* v2.0.1 关键修复：Android BLE 在连接建立时会自动暂停可连接广播，
+                         * 断开后不会自动恢复——必须重新 startAdvertising，否则车机永远连不回。
+                         * （车机重启/车机App重装/超距断连都会触发此路径）。
+                         * 延迟 800ms 让底层栈先完成链路清理。 */
+                        main.removeCallbacks(restartAdvTask);
+                        main.postDelayed(restartAdvTask, 800);
+                    }
                 }
             }
         }
@@ -365,7 +405,7 @@ class BlePeripheral {
     /** 断连后重启广播（去重：removeCallbacks 防止多次断连叠加） */
     private final Runnable restartAdvTask = new Runnable() {
         @Override public void run() {
-            if (gattServer == null) return;   /* 已 stop()，不复活 */
+            if (gattServer == null || idlePaused) return;   /* 已 stop() 或未播放静默，不复活 */
             Log.i(TAG, "restarting advertising after disconnect");
             try { if (advertiser != null) advertiser.stopAdvertising(advCb); } catch (Exception ignored) {}
             startAdvertising();

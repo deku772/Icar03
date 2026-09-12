@@ -45,6 +45,9 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     private static final String TAG = "IcarLyrics.Phone";
     private static final long PROGRESS_INTERVAL_MS = 800;
     private static final long MEDIA_POLL_INTERVAL_MS = 1000;   /* 1s：自然切歌更快被发现 */
+    /** 连续未播放超过此时长 → 停 BLE 广播并断开车机；恢复播放立即重开广播 */
+    private static final long IDLE_PAUSE_MS = 12000;
+    private static final long IDLE_CHECK_MS = 3000;
 
     public static volatile boolean running = false;
     private static PlaybackService instance;
@@ -128,6 +131,10 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     private int fetchSeq = 0;          /* 取词代号：新曲开始后丢弃过期结果 */
     private Runnable progressTask;
 
+    private long lastPlayingTs = 0;    /* 最近一次观察到“正在播放”的时刻 */
+    private boolean bleWasPlaying = false;
+    private Runnable idleCheckTask;
+
     @Override
     public IBinder onBind(Intent intent) { return null; }
 
@@ -152,7 +159,9 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         }
         mon.bleState = "未启动";
         NotificationListener.setCallback(this);
+        lastPlayingTs = System.currentTimeMillis(); /* 从启动算起，未播放则超时静默 */
         startMediaMonitor();
+        startIdleCheck();
         main.post(() -> {
             try {
                 ble.start();   /* GATT 服务端就绪，等车机按 MAC 直连 */
@@ -169,6 +178,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         instance = null;
         NotificationListener.setCallback(null);
         stopMediaPolling();
+        stopIdleCheck();
         stopProgressTask();
         if (ble != null) ble.stop();
         /* 重置监控快照，避免残留旧状态 */
@@ -178,6 +188,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         mon.listenerState = "";
         mon.fetchState = "未取词";
         mon.fetchSource = "";
+        mon.fetchError = "";
         mon.lrcPreview = "";
         mon.lrcFull = "";
         mon.pushCount = 0;
@@ -244,7 +255,12 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             /* getActiveSessions 空列表时的兜底：扫媒体通知提取 token */
             c = NotificationListener.pickFromNotifications(this);
         }
-        if (c == null) return;
+        if (c == null) {
+            /* 无媒体会话：视为未播放，供未播放静默判断 */
+            lastPlaying = false;
+            mon.playingNow = false;
+            return;
+        }
 
         if (c != activeController) {
             if (activeController != null) {
@@ -348,7 +364,57 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         lastPlaying = playing;
         mon.positionMs = positionMs;
         mon.playingNow = playing;
+        if (playing) {
+            lastPlayingTs = System.currentTimeMillis();
+            /* 恢复播放：若已因未播放静默，立即恢复广播让车机重连 */
+            if (ble != null && ble.isIdlePaused()) {
+                ble.resumeFromIdle();
+                updateNotification("已恢复广播: " + (curKey.isEmpty() ? "等待播放" : curKey.split("\\|", 2)[0]));
+            }
+        }
         startProgressTask();
+    }
+
+    /* ---------------- 未播放静默（停广播 / 避免无意义连接车机） ---------------- */
+
+    private void startIdleCheck() {
+        idleCheckTask = new Runnable() {
+            @Override public void run() {
+                try {
+                    maybePauseBleForIdle();
+                } catch (Exception e) {
+                    IcarPhoneApp.saveCrash(Thread.currentThread(), e);
+                }
+                main.postDelayed(this, IDLE_CHECK_MS);
+            }
+        };
+        main.postDelayed(idleCheckTask, IDLE_CHECK_MS);
+    }
+
+    private void stopIdleCheck() {
+        if (idleCheckTask != null) {
+            main.removeCallbacks(idleCheckTask);
+            idleCheckTask = null;
+        }
+    }
+
+    private void maybePauseBleForIdle() {
+        if (ble == null) return;
+        boolean playing = lastPlaying;
+        if (playing) {
+            lastPlayingTs = System.currentTimeMillis();
+            if (ble.isIdlePaused()) ble.resumeFromIdle();
+            bleWasPlaying = true;
+            return;
+        }
+        if (ble.isIdlePaused()) return;
+        if (System.currentTimeMillis() - lastPlayingTs < IDLE_PAUSE_MS) return;
+        /* 连续未播放超时：停广播并断开车机，手机不再维持无线链路 */
+        ble.pauseForIdle();
+        stopProgressTask();
+        if (bleWasPlaying || !curKey.isEmpty()) {
+            updateNotification("未播放，已暂停 BLE（放歌自动恢复）");
+        }
     }
 
     @Override
@@ -397,6 +463,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         volatile String artist = "";
         volatile String fetchState = "未取词"; /* 取词中/已获取(lrc)/未找到/未取词 */
         volatile String fetchSource = "";
+        volatile String fetchError = "";   /* 三源失败摘要 */
         volatile String lrcPreview = "";    /* 歌词前几行预览 */
         volatile String lrcFull = "";       /* 完整 LRC（主界面滚动歌词渲染用） */
         volatile long positionMs = 0;       /* 当前播放位置（主界面歌词跟随） */
@@ -430,6 +497,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             if (seq != fetchSeq) return;   /* 已切到更新的曲目，丢弃 */
             if (r == null) {
                 mon.fetchState = "未找到";
+                mon.fetchSource = "";
+                mon.fetchError = fetcher.lastError == null ? "" : fetcher.lastError;
                 mon.lrcPreview = "";
                 mon.lrcFull = "";
                 updateNotification("未找到歌词: " + t);
@@ -437,6 +506,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             }
             mon.fetchState = "已获取";
             mon.fetchSource = r.source;
+            mon.fetchError = "";
             mon.lrcPreview = previewOf(r.lrc);
             mon.lrcFull = r.lrc == null ? "" : r.lrc;
             try {
@@ -576,6 +646,16 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     /* ---------------- 通知 ---------------- */
 
+    /** 点通知回到主界面（singleTask，已存在则带到前台） */
+    private android.app.PendingIntent contentIntent() {
+        Intent i = new Intent(this, PhoneMainActivity.class);
+        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) flags |= android.app.PendingIntent.FLAG_IMMUTABLE;
+        return android.app.PendingIntent.getActivity(this, 0, i, flags);
+    }
+
     private void startForeground() {
         String chId = "icarlyrics_phone";
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -584,7 +664,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         Notification n = new Notification.Builder(this, chId)
                 .setSmallIcon(R.drawable.ic_stat_lyrics)
                 .setContentTitle("IcarLyrics 手机端运行中")
-                .setContentText("等待播放音乐…")
+                .setContentText("等待播放音乐…（点此打开）")
+                .setContentIntent(contentIntent())
                 .setOngoing(true)
                 .build();
         startForeground(10, n);
@@ -596,6 +677,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
                 .setSmallIcon(R.drawable.ic_stat_lyrics)
                 .setContentTitle("IcarLyrics 手机端")
                 .setContentText(text)
+                .setContentIntent(contentIntent())
                 .setOngoing(true)
                 .build();
         try { nm.notify(10, n); } catch (Exception ignored) {}

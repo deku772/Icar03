@@ -3,10 +3,5 @@
 build/
 .gradle/
 local.properties
-# 本地笔记不进公开仓库
-notes/
 private/
-analysis-report.md
-BLE连接问题诊断交接-*.md
-bluetooth-lyrics-plan.md
-记忆导出_*.md
+# notes/ 技术路线笔记已纳入版本管理，换机器可从远程找回
