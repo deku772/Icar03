@@ -44,8 +44,11 @@ public class PhoneMainActivity extends Activity {
     private final TextView[] rowValues = new TextView[ROW_COUNT];
 
     private Button btnService;
+    private Button btnCarAdb;
+    private TextView tvCarAdbLog;
     private TextView tvCrash;
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private boolean carAdbRunning = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -201,7 +204,52 @@ public class PhoneMainActivity extends Activity {
         btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
                 BuildConfig.VERSION_NAME, false));
         box.addView(btnUpd);
+
+        btnCarAdb = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnCarAdb.setText("4 · 扫车机 ADB 一键授权");
+        styleButton(btnCarAdb, R.drawable.btn_ghost, C_AMBER);
+        btnCarAdb.setOnClickListener(v -> startCarAdbSetup());
+        box.addView(btnCarAdb);
+
+        tvCarAdbLog = new TextView(this);
+        tvCarAdbLog.setTextColor(C_TEXT_DIM);
+        tvCarAdbLog.setTextSize(12);
+        tvCarAdbLog.setLineSpacing(dp(2), 1f);
+        tvCarAdbLog.setPadding(dp(8), dp(4), dp(8), 0);
+        tvCarAdbLog.setVisibility(View.GONE);
+        box.addView(tvCarAdbLog);
         return box;
+    }
+
+    /** 手机连车机热点/同网 Wi-Fi 后，扫 :5555 并代跑 ADB 授权 */
+    private void startCarAdbSetup() {
+        if (carAdbRunning) return;
+        carAdbRunning = true;
+        btnCarAdb.setText("4 · 扫描/授权中…");
+        tvCarAdbLog.setVisibility(View.VISIBLE);
+        tvCarAdbLog.setText("准备中…");
+        final StringBuilder log = new StringBuilder();
+        CarAdbSetup.runAsync(this, new CarAdbSetup.Callback() {
+            @Override public void onLog(String line) {
+                log.append(line).append('\n');
+                ui.post(() -> {
+                    String s = log.toString();
+                    if (s.length() > 1200) s = "…" + s.substring(s.length() - 1200);
+                    tvCarAdbLog.setText(s);
+                });
+            }
+            @Override public void onDone(boolean ok, String summary) {
+                ui.post(() -> {
+                    carAdbRunning = false;
+                    btnCarAdb.setText("4 · 扫车机 ADB 一键授权");
+                    log.append(ok ? "[完成] " : "[失败] ").append(summary).append('\n');
+                    tvCarAdbLog.setText(log.toString());
+                    android.widget.Toast.makeText(PhoneMainActivity.this, summary,
+                            android.widget.Toast.LENGTH_LONG).show();
+                });
+            }
+        });
     }
 
     /** 赞赏码 + 车机端下载码 */
