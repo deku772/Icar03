@@ -45,6 +45,7 @@ public class PhoneMainActivity extends Activity {
 
     private Button btnService;
     private Button btnCarAdb;
+    private Button btnCarInstall;
     private android.widget.EditText etCarIp;
     private TextView tvCarAdbLog;
     private TextView tvCrash;
@@ -184,45 +185,57 @@ public class PhoneMainActivity extends Activity {
         blp.topMargin = dp(16);
         box.setLayoutParams(blp);
 
+        /* 1 通知使用权 */
         Button btnPerms = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnPerms.setText("1 · 授权（蓝牙 / 通知使用权）");
+        btnPerms.setText("1 · 授权通知使用权");
         styleButton(btnPerms, R.drawable.btn_primary, 0xFFFFFFFF);
         btnPerms.setOnClickListener(v -> requestPermissions());
         box.addView(btnPerms);
 
+        /* 2 ADB 一键安装车机端（GitHub 下载 → 推送安装） */
+        btnCarInstall = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnCarInstall.setText("2 · 一键安装车机端（ADB）");
+        styleButton(btnCarInstall, R.drawable.btn_primary, 0xFFFFFFFF);
+        btnCarInstall.setOnClickListener(v -> startCarAdbInstall());
+        box.addView(btnCarInstall);
+
+        /* 3 ADB 一键授权车机 */
+        btnCarAdb = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnCarAdb.setText("3 · 一键授权车机（ADB）");
+        styleButton(btnCarAdb, R.drawable.btn_primary, 0xFFFFFFFF);
+        btnCarAdb.setOnClickListener(v -> startCarAdbSetup());
+        box.addView(btnCarAdb);
+
+        /* 4 启停推送 */
         btnService = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnService.setText("2 · 启动推送服务");
-        styleButton(btnService, R.drawable.btn_ghost, C_PRIMARY);
+        btnService.setText("4 · 启动推送服务");
+        styleButton(btnService, R.drawable.btn_primary, 0xFFFFFFFF);
         btnService.setOnClickListener(v -> toggleService());
         box.addView(btnService);
 
+        /* 5 检查更新 */
         Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnUpd.setText("3 · 检查更新（GitHub）");
+        btnUpd.setText("5 · 检查更新（GitHub）");
         styleButton(btnUpd, R.drawable.btn_ghost, C_PRIMARY);
         btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
                 BuildConfig.VERSION_NAME, false));
         box.addView(btnUpd);
 
-        btnCarAdb = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnCarAdb.setText("4 · 扫车机 ADB 一键授权");
-        styleButton(btnCarAdb, R.drawable.btn_ghost, C_AMBER);
-        box.addView(btnCarAdb);
-
-        /* 03 助手同款：手机开热点，车机连上后再扫 ARP/网段 */
         TextView tip = new TextView(this);
-        tip.setText("推荐：手机开热点 → 车机连上 → 再点上面按钮\n"
-                + "（也可在车机「关于/开发者」里看 IP，填到下面直连）");
+        tip.setText("ADB：手机开热点 → 车机连上 → 再点 2/3\n"
+                + "也可在下面填车机 IP 直连（如 10.235.172.177）");
         tip.setTextColor(C_TEXT_DIM);
         tip.setTextSize(11);
-        tip.setPadding(dp(8), dp(2), dp(8), 0);
+        tip.setPadding(dp(8), dp(4), dp(8), 0);
         box.addView(tip);
 
         etCarIp = new android.widget.EditText(this);
-        etCarIp.setHint("车机 IP（可选，如 192.168.43.100）");
+        etCarIp.setHint("车机 IP（可选）");
         etCarIp.setTextColor(C_TEXT);
         etCarIp.setHintTextColor(C_TEXT_DIM);
         etCarIp.setTextSize(13);
@@ -237,8 +250,6 @@ public class PhoneMainActivity extends Activity {
         box.addView(etCarIp, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(44)));
 
-        btnCarAdb.setOnClickListener(v -> startCarAdbSetup());
-
         tvCarAdbLog = new TextView(this);
         tvCarAdbLog.setTextColor(C_TEXT_DIM);
         tvCarAdbLog.setTextSize(12);
@@ -249,39 +260,52 @@ public class PhoneMainActivity extends Activity {
         return box;
     }
 
-    /** 手机开热点、车机连上后：ARP/网段扫 :5555，或填 IP 直连授权 */
+    private void appendAdbLog(StringBuilder log, String line) {
+        log.append(line).append('\n');
+        ui.post(() -> {
+            String s = log.toString();
+            if (s.length() > 1600) s = "…" + s.substring(s.length() - 1600);
+            tvCarAdbLog.setText(s);
+        });
+    }
+
     private void startCarAdbSetup() {
+        runAdbFlow(false);
+    }
+
+    private void startCarAdbInstall() {
+        runAdbFlow(true);
+    }
+
+    /** install=true 走下载+安装+授权；false 仅授权 */
+    private void runAdbFlow(boolean install) {
         if (carAdbRunning) return;
         carAdbRunning = true;
         String manual = etCarIp.getText() == null ? "" : etCarIp.getText().toString().trim();
-        btnCarAdb.setText("4 · 扫描/授权中…");
+        Button btn = install ? btnCarInstall : btnCarAdb;
+        String idle = install ? "2 · 一键安装车机端（ADB）" : "3 · 一键授权车机（ADB）";
+        btn.setText(install ? "2 · 安装中…" : "3 · 授权中…");
         tvCarAdbLog.setVisibility(View.VISIBLE);
-        tvCarAdbLog.setText(manual.isEmpty()
-                ? "请保持手机热点开启、车机已连接…\n" : "直连 " + manual + "…\n");
+        tvCarAdbLog.setText(manual.isEmpty() ? "请保持手机热点开启、车机已连接…\n" : "直连 " + manual + "…\n");
         final StringBuilder log = new StringBuilder();
-        CarAdbSetup.runAsync(this, manual, new CarAdbSetup.Callback() {
-            @Override public void onLog(String line) {
-                log.append(line).append('\n');
-                ui.post(() -> {
-                    String s = log.toString();
-                    if (s.length() > 1600) s = "…" + s.substring(s.length() - 1600);
-                    tvCarAdbLog.setText(s);
-                });
-            }
+        CarAdbSetup.Callback cb = new CarAdbSetup.Callback() {
+            @Override public void onLog(String line) { appendAdbLog(log, line); }
             @Override public void onDone(boolean ok, String summary) {
                 ui.post(() -> {
                     carAdbRunning = false;
-                    btnCarAdb.setText("4 · 扫车机 ADB 一键授权");
+                    btn.setText(idle);
                     log.append(ok ? "[完成] " : "[失败] ").append(summary).append('\n');
                     tvCarAdbLog.setText(log.toString());
                     android.widget.Toast.makeText(PhoneMainActivity.this, summary,
                             android.widget.Toast.LENGTH_LONG).show();
                 });
             }
-        });
+        };
+        if (install) CarAdbSetup.runInstallAsync(this, manual, cb);
+        else CarAdbSetup.runAsync(this, manual, cb);
     }
 
-    /** 赞赏码 + 车机端下载码 */
+    /** 微信赞赏码（车机端改用按钮 2 一键 ADB 安装） */
     private View buildTipCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -293,33 +317,20 @@ public class PhoneMainActivity extends Activity {
         card.setLayoutParams(lp);
 
         TextView cap = new TextView(this);
-        cap.setText("左：下载车机端 · 右：微信赞赏");
+        cap.setText("微信赞赏");
         cap.setTextColor(C_TEXT_DIM);
         cap.setTextSize(13);
         cap.setGravity(Gravity.CENTER);
         card.addView(cap);
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(8), 0, 0);
-
-        ImageView car = new ImageView(this);
-        try {
-            car.setImageBitmap(QrEncoder.encode(
-                    "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk", 4));
-        } catch (Exception ignored) {}
-        car.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        row.addView(car, new LinearLayout.LayoutParams(0, dp(150), 1f));
-
         ImageView tip = new ImageView(this);
         tip.setImageResource(R.drawable.wechat_qr);
         tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(0, dp(150), 1f);
-        tipLp.leftMargin = dp(10);
+        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(150));
+        tipLp.topMargin = dp(8);
         tip.setLayoutParams(tipLp);
-        row.addView(tip);
-        card.addView(row);
+        card.addView(tip);
 
         TextView tipCap = new TextView(this);
         tipCap.setText("Mysa");
@@ -626,7 +637,7 @@ public class PhoneMainActivity extends Activity {
             tvCrash.setText("[上次崩溃] " + firstLine(crash));
         }
 
-        btnService.setText(running ? "2 · 停止推送服务" : "2 · 启动推送服务");
+        btnService.setText(running ? "4 · 停止推送服务" : "4 · 启动推送服务");
     }
 
     private static String firstLine(String s) {

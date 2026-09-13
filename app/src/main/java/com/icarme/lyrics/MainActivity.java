@@ -377,7 +377,7 @@ public class MainActivity extends Activity {
         blp.topMargin = dp(18);
         box.setLayoutParams(blp);
 
-        /* 统一蓝底主按钮：高度/间距一致，扫描 → 装机 → 启停 */
+        /* 统一蓝底主按钮：1 扫描 → 2 启停悬浮 → 3 下载 APK（取消检查更新，更新走下载） */
         btnScan = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
         btnScan.setText("1 · 扫描发现手机");
@@ -393,14 +393,6 @@ public class MainActivity extends Activity {
         tvScanHint.setVisibility(View.GONE);
         box.addView(tvScanHint);
 
-        Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnUpd.setText("检查更新（GitHub）");
-        styleButton(btnUpd, R.drawable.btn_primary, 0xFFFFFFFF, true);
-        btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
-                BuildConfig.VERSION_NAME, false));
-        box.addView(btnUpd);
-
         btnService = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
         btnService.setText("2 · 启动歌词悬浮");
@@ -410,16 +402,8 @@ public class MainActivity extends Activity {
 
         Button btnMirror = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnMirror.setText("下载 APK（可选国内镜像）");
-        btnMirror.setBackgroundResource(R.drawable.btn_ghost);
-        btnMirror.setTextColor(C_PRIMARY);
-        btnMirror.setTextSize(14);
-        btnMirror.setAllCaps(false);
-        btnMirror.setStateListAnimator(null);
-        LinearLayout.LayoutParams mlp2 = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
-        mlp2.topMargin = dp(8);
-        btnMirror.setLayoutParams(mlp2);
+        btnMirror.setText("3 · 下载 APK（可选镜像）");
+        styleButton(btnMirror, R.drawable.btn_primary, 0xFFFFFFFF, true);
         btnMirror.setOnClickListener(v -> showMirrorDownloadDialog());
         box.addView(btnMirror);
 
