@@ -47,8 +47,9 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 | `app/` | 车机端 |
 | `phone/` | 手机端 |
 | `.github/workflows/release.yml` | 打 `v*` tag 自动构建并发布 Release |
+| `signing/` | 项目固定 APK 签名（侧载用，CI/本地一致） |
 
-双端零第三方依赖（纯 Android SDK）。
+双端零第三方依赖（纯 Android SDK）。两端共用 `signing/icarlyrics.keystore`，避免每次 CI 用新 debug key 导致覆盖安装报「签名不一致」。
 
 ## BLE 协议
 
