@@ -90,6 +90,16 @@
   #hint .sub{font-size:13px;opacity:.75;}
   body.no-lyrics #hint{opacity:1;}
   body:not(.no-lyrics) #hint{opacity:0;}
+  /* 偏移调节提示（clean 模式也显示，保证调节有反馈） */
+  #offsetToast{position:fixed;top:10%;left:50%;transform:translateX(-50%);
+    z-index:20;padding:10px 22px;border-radius:24px;
+    background:rgba(8,12,20,.82);color:#fff;font-size:18px;font-weight:600;
+    letter-spacing:.02em;opacity:0;pointer-events:none;
+    transition:opacity .22s ease;border:1px solid rgba(255,255,255,.12);
+    text-shadow:0 1px 8px rgba(0,0,0,.55);}
+  #offsetToast.show{opacity:1;}
+  body.theme-light #offsetToast{background:rgba(255,255,255,.92);color:#171B21;
+    border-color:rgba(0,0,0,.08);}
   /* 演示面板（浏览器调试用；车机由 clean 模式隐藏） */
   #panel{position:fixed;right:10px;top:10px;z-index:9;background:rgba(20,22,30,.92);
     color:#e8eaf0;border:1px solid rgba(255,255,255,.15);border-radius:10px;
@@ -106,6 +116,7 @@
 <body class="theme-dark no-lyrics">
 <div id="stage"><div id="lyrics"></div></div>
 <div id="hint">等待手机连接…</div>
+<div id="offsetToast"></div>
 <div id="panel">
   <h3>IcarLyrics 演示台</h3>
   <div class="row">
@@ -126,6 +137,7 @@ var S = {
   lines:[],            /* [{t,txt,trans}] 行级同步（忽略逐字标签） */
   cur:-1,
   offsetMs:0,          /* 用户歌词偏移：正=提前（词晚于声时用），负=延后 */
+  offsetBumped:0,      /* 时间戳：刚改过偏移时跳过防回跳一次 */
   lineH:72,            /* 固定行高缓存，滚动定位用 */
   switchGeneration:0,  /* 换歌/重建代数，防止旧动画回调污染新 DOM */
   connected:false, advState:'', rxFrag:0, rxFrame:0, rxProg:0, rxBrief:'',
@@ -258,6 +270,7 @@ function handleCmd(msg){
   }
   else if (a === 'setOffset' && typeof msg.value === 'number'){
     S.offsetMs = msg.value;
+    S.offsetBumped = Date.now();
     /* 偏移变化立即重定位到新当前行（不等待下一个进度包） */
     if (S.lines.length){
       var idx = findLine(nowMs());
@@ -265,6 +278,7 @@ function handleCmd(msg){
       if (idx !== S.cur) switchTo(idx);
       else positionToCurrent(true);
     }
+    if (msg.toast !== false) showOffsetToast(S.offsetMs);
   }
   else if (a === 'setAlign'){
     var al = msg.value;
@@ -451,6 +465,11 @@ function findLine(t){
     var mid = (lo+hi) >> 1;
     if (S.lines[mid].t <= t + 90){ idx = mid; lo = mid+1; } else hi = mid-1;
   }
+  /* 刚调过偏移：立刻按新时间轴定位，不吃防回跳（否则小幅「延后」看起来没反应） */
+  if (S.offsetBumped && (Date.now() - S.offsetBumped) < 400){
+    S.offsetBumped = 0;
+    return idx;
+  }
   /* 防回跳：时间轴抖一下时不要闪回上一行（除非明显早于当前行 280ms） */
   if (S.cur >= 0 && idx < S.cur && S.cur < S.lines.length){
     if (t + 280 >= S.lines[S.cur].t) idx = S.cur;
@@ -504,6 +523,17 @@ var DEMO_TLYRIC =
 '[00:19.50]Wind slips through fingers\n[00:23.50]Blowing hesitation away\n';
 
 function $(id){ return document.getElementById(id); }
+var toastTimer = 0;
+function showOffsetToast(ms){
+  var el = $('offsetToast');
+  if (!el) return;
+  var label = ms === 0 ? '偏移 已同步'
+    : (ms > 0 ? '提前 ' : '延后 ') + (Math.abs(ms) / 1000).toFixed(2) + 's';
+  el.textContent = label;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 1600);
+}
 function syncPanel(){
   if (!$('bPlay')) return;
   $('bPlay').textContent = S.playing ? '暂停' : '播放';
@@ -514,7 +544,12 @@ function syncPanel(){
 function bindPanel(){
   $('bPlay').onclick = function(){
     S.playing = !S.playing;
-    if (S.playing) S.syncedAt = Date.now(); else S.positionMs = nowMs();
+    /* 用原始媒体时间折叠，不能把 offsetMs 写回 positionMs（会双重偏移） */
+    if (S.playing) {
+      S.syncedAt = Date.now();
+    } else {
+      S.positionMs = S.positionMs + (Date.now() - S.syncedAt);
+    }
     document.body.classList.toggle('paused', !S.playing);
     syncPanel();
   };
@@ -522,9 +557,10 @@ function bindPanel(){
   $('tDark').onclick = function(){ handleCmd({action:'setTheme',value:'dark'}); };
   $('tLight').onclick = function(){ handleCmd({action:'setTheme',value:'light'}); };
   setInterval(function(){
-    var s = S.playing ? nowMs() : S.positionMs;
+    var s = S.playing ? nowMs() : S.positionMs + S.offsetMs;
     var mm = Math.floor(s/60000), ss = ('0'+Math.floor(s/1000)%60).slice(-2);
     $('stat').innerHTML = '桥: <b>演示模式</b> · '+mm+':'+ss
+      + ' · 偏移 ' + (S.offsetMs>0?'+':'') + (S.offsetMs/1000).toFixed(2) + 's'
       + ' · ' + (S.lines.length ? S.lines.length+' 行' : '无歌词');
   }, 500);
 }
