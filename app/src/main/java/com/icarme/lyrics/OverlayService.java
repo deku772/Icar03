@@ -61,7 +61,10 @@ public class OverlayService extends Service {
     private static final String PREFS = "icarlyrics";
     private static final String KEY_OFFSET_MS = "lyrics_offset_ms";
     private static final int OFFSET_LIMIT_MS = 15000;   /* ±15s，覆盖 iCAR 缓冲延迟 */
-    private static final int OFFSET_STEP_MS = 250;
+    private static final int OFFSET_STEP_MS = 500;      /* 点按步进：250ms 在行距 2~4s 内几乎看不出来 */
+    private static final int OFFSET_COARSE_MS = 2000;   /* 长按粗调 */
+    /** 默认提前量：蓝牙/A2DP 有延迟，歌词略早于发声更跟手；用户改过后以存储为准 */
+    static final int DEFAULT_LEAD_MS = 600;
 
     /* 自动启动开关：默认开；手动停止置 false，手动启动/ADB START 置 true。开机/升级只在 true 时拉起 */
     private static final String KEY_AUTO_START = "auto_start";
@@ -124,31 +127,37 @@ public class OverlayService extends Service {
         } catch (Exception ignored) {}
     }
 
-    /** 当前偏移（ms），主界面调节后持久化 */
+    /** 当前偏移（ms），主界面调节后持久化。从未调过时返回默认提前量 */
     static int getOffsetMs() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getInt(KEY_OFFSET_MS, 0);
+                .getInt(KEY_OFFSET_MS, DEFAULT_LEAD_MS);
     }
+
+    static int offsetStepMs() { return OFFSET_STEP_MS; }
+    static int offsetCoarseMs() { return OFFSET_COARSE_MS; }
 
     /** 调整偏移并持久化（±15s 夹取），同时立即下发给渲染器实时重定位 */
     static int adjustOffsetMs(int deltaMs) {
         int v = Math.max(-OFFSET_LIMIT_MS, Math.min(OFFSET_LIMIT_MS, getOffsetMs() + deltaMs));
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putInt(KEY_OFFSET_MS, v).apply();
-        pushOffset(v);
+        pushOffset(v, true);
         return v;
     }
 
     /** 向渲染器下发当前偏移（服务未运行时静默跳过，启动时同步一次） */
-    static void pushOffset(int valueMs) {
+    static void pushOffset(int valueMs, boolean toast) {
         try {
             org.json.JSONObject o = new org.json.JSONObject();
             o.put("type", "cmd");
             o.put("action", "setOffset");
             o.put("value", valueMs);
+            o.put("toast", toast);
             push(o.toString());
         } catch (Exception ignored) {}
     }
+
+    static void pushOffset(int valueMs) { pushOffset(valueMs, false); }
 
     static void pushScene(String mode) {
         try {

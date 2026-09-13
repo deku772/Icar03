@@ -236,26 +236,38 @@ public class MainActivity extends Activity {
             rowValues[i] = value;
             card.addView(row);
 
-            /* 歌词偏移行：内嵌调节按钮（词晚于声→提前，词早于声→延后；250ms 步进，±15s） */
+            /* 歌词偏移行：点按 500ms，长按 2s；词晚于声→提前，词早于声→延后 */
             if (i == ROW_OFFSET) {
                 LinearLayout ctl = new LinearLayout(this);
                 ctl.setOrientation(LinearLayout.HORIZONTAL);
                 ctl.setGravity(Gravity.CENTER_VERTICAL);
+                final int step = OverlayService.offsetStepMs();
+                final int coarse = OverlayService.offsetCoarseMs();
                 Button later = new Button(new android.view.ContextThemeWrapper(this,
                         android.R.style.Widget_Material_Button_Borderless), null, 0);
                 later.setText("延后");
                 styleMiniButton(later);
                 later.setOnClickListener(v -> {
-                    OverlayService.adjustOffsetMs(-250);
+                    OverlayService.adjustOffsetMs(-step);
                     refreshStatus();
+                });
+                later.setOnLongClickListener(v -> {
+                    OverlayService.adjustOffsetMs(-coarse);
+                    refreshStatus();
+                    return true;
                 });
                 Button earlier = new Button(new android.view.ContextThemeWrapper(this,
                         android.R.style.Widget_Material_Button_Borderless), null, 0);
                 earlier.setText("提前");
                 styleMiniButton(earlier);
                 earlier.setOnClickListener(v -> {
-                    OverlayService.adjustOffsetMs(250);
+                    OverlayService.adjustOffsetMs(step);
                     refreshStatus();
+                });
+                earlier.setOnLongClickListener(v -> {
+                    OverlayService.adjustOffsetMs(coarse);
+                    refreshStatus();
+                    return true;
                 });
                 ctl.addView(later);
                 ctl.addView(earlier);
@@ -578,8 +590,8 @@ public class MainActivity extends Activity {
         int off = OverlayService.getOffsetMs();
         setDot(ROW_OFFSET, off == 0 ? 0xFF4B5563 : C_PRIMARY);
         rowValues[ROW_OFFSET].setText(off == 0
-                ? "已同步（词快按「延后」· 词慢按「提前」）"
-                : String.format(java.util.Locale.US, "%s%.2fs · %s",
+                ? "已同步（词慢点「提前」· 词快点「延后」；长按±2s）"
+                : String.format(java.util.Locale.US, "%s%.2fs · 补偿「%s」（点按±0.5s 长按±2s）",
                         off > 0 ? "提前 " : "延后 ", Math.abs(off) / 1000f,
                         off > 0 ? "词晚于声" : "词早于声"));
 
