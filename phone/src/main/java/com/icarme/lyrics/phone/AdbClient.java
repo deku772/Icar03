@@ -159,22 +159,25 @@ final class AdbClient implements Closeable {
 
     /**
      * 把本地 APK 推到车机 /data/local/tmp 并 pm install -r。
-     * 比手机本地拉安装器更省事：不走「未知来源/悬浮窗」链路。
+     * 先试 sync:；部分车机 adbd 会拒 sync，再退回 exec:cat 流式写入。
      */
     void pushAndInstall(java.io.File apk, String remoteName) throws IOException {
         if (apk == null || !apk.isFile() || apk.length() < 1000) {
             throw new IOException("APK 文件无效");
         }
         String remote = "/data/local/tmp/" + remoteName;
-        pushFile(apk, remote);
+        try {
+            pushFile(apk, remote);
+            Log.i(TAG, "pushed via sync: " + remote);
+        } catch (IOException e) {
+            Log.w(TAG, "sync push failed (" + e.getMessage() + "), fallback shell-cat");
+            pushFileViaShell(apk, remote);
+        }
         String out = shell("pm install -r " + remote);
         if (out == null) out = "";
         String t = out.trim();
-        if (!t.contains("Success")) {
-            /* 部分 ROM 只回空/Warning */
-            if (t.toLowerCase(Locale.US).contains("fail")) {
-                throw new IOException("pm install 失败: " + firstLine(t));
-            }
+        if (t.toLowerCase(Locale.US).contains("fail") && !t.contains("Success")) {
+            throw new IOException("pm install 失败: " + firstLine(t));
         }
         shell("rm -f " + remote);
     }
@@ -182,6 +185,33 @@ final class AdbClient implements Closeable {
     private static String firstLine(String s) {
         int i = s.indexOf('\n');
         return i > 0 ? s.substring(0, i) : s;
+    }
+
+    /** exec:cat > file 流式写入（sync: 被 adbd 拒时的兜底） */
+    private void pushFileViaShell(java.io.File local, String remotePath) throws IOException {
+        int localId = localIdSeq++;
+        String svc = "exec:cat > " + remotePath;
+        send(A_OPEN, localId, 0, (svc + "\0").getBytes(StandardCharsets.UTF_8));
+        int remoteId = waitOkay(localId);
+
+        try (java.io.InputStream in = new java.io.FileInputStream(local)) {
+            byte[] chunk = new byte[32 * 1024];
+            int n;
+            while ((n = in.read(chunk)) > 0) {
+                byte[] data = new byte[n];
+                System.arraycopy(chunk, 0, data, 0, n);
+                /* WRTE: arg0=本端 localId, arg1=对端 remoteId */
+                send(A_WRTE, localId, remoteId, data);
+                waitOkay(localId);
+            }
+        }
+        send(A_CLSE, localId, remoteId, new byte[0]);
+        /* 读完设备侧 CLSE */
+        long deadline = System.currentTimeMillis() + 3000;
+        while (System.currentTimeMillis() < deadline) {
+            Packet p = read();
+            if (p.is(A_CLSE) && p.arg1 == localId) break;
+        }
     }
 
     /** ADB sync SEND/DATA/DONE 推单个文件 */
