@@ -150,6 +150,34 @@ public class MainActivity extends Activity {
                         Uri.parse("package:" + getPackageName())));
             } catch (Exception ignored) { }
         }
+        /* BLE 扫描需要定位：启动时主动弹系统授权框（车机也可点，不必等 ADB） */
+        ensureLocationPermission(false);
+    }
+
+    private static final int REQ_LOCATION = 11;
+
+    private void ensureLocationPermission(boolean forceHint) {
+        if (hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) return;
+        try {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQ_LOCATION);
+        } catch (Exception e) {
+            showHint("无法弹出定位授权，请用 ADB:\npm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
+            return;
+        }
+        if (forceHint) {
+            showHint("请在系统弹窗中点「允许」定位权限");
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_LOCATION) {
+            boolean ok = grantResults != null && grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            showHint(ok ? "定位权限已授予，可扫描手机" : "定位未授予，BLE 扫描不可用");
+            refreshStatus();
+        }
     }
 
     /* ---------------- 界面构建 ---------------- */
@@ -567,7 +595,14 @@ public class MainActivity extends Activity {
         String phone = BleService.phoneMacText();
 
         setDot(ROW_PERM, overlay ? C_GREEN : C_RED);
-        rowValues[ROW_PERM].setText(overlay ? "已授予" : "未授予（需 ADB 授权）");
+        boolean loc = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION);
+        if (overlay && loc) {
+            rowValues[ROW_PERM].setText("悬浮窗已授予 · 定位已授予");
+        } else if (overlay) {
+            rowValues[ROW_PERM].setText("悬浮窗已授予 · 缺定位（点扫描时会弹授权）");
+        } else {
+            rowValues[ROW_PERM].setText("未授予（需 ADB / 设置里允许悬浮窗）");
+        }
 
         setDot(ROW_OVERLAY, svc ? C_GREEN : 0xFF4B5563);
         rowValues[ROW_OVERLAY].setText(svc ? "运行中" : "已停止");
@@ -622,10 +657,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
-            try {
-                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1);
-            } catch (Exception ignored) {}
-            showHint("缺少定位权限（BLE 扫描需要）\nADB: pm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
+            ensureLocationPermission(true);
             return;
         }
         if (scanning) return;

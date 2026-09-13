@@ -117,7 +117,7 @@ final class CarAdbSetup {
             adb.connect(host, ADB_PORT);
             String banner = runCmd(adb, cb, "echo ok");
             if (banner == null || !banner.contains("ok")) {
-                throw new IOException("shell 通道异常");
+                throw new IOException("shell 通道异常（若 ADB Helper/电脑 adb 已连接，请先断开再试）");
             }
             runCmd(adb, cb, "appops set com.icarme.lyrics SYSTEM_ALERT_WINDOW allow");
             runCmd(adb, cb, "pm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");

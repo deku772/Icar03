@@ -25,8 +25,11 @@ import java.util.Arrays;
 
 /**
  * 极简无线 ADB 客户端（手机连车机 :5555）。
- * 协议子集：CNXN / AUTH(RSA) / OPEN shell: / WRTE / CLSE。
- * 与 03 车机助手同思路：同网段扫 5555，直接 shell 代跑授权命令。
+ *
+ * 注意：
+ *  1) 不要在 CNXN 里声明 shell_v2——否则 adbd 会按 v2 帧格式回，旧式 OPEN 会被 CLSE。
+ *  2) 一次性命令优先用 exec:（无 PTY），比 shell: 更不容易被占用/拒绝。
+ *  3) adbd 通常只允许一个 shell 会话；若 ADB Helper 等已占用，OPEN 会 CLSE，需先断开它们。
  */
 final class AdbClient implements Closeable {
 
@@ -45,8 +48,8 @@ final class AdbClient implements Closeable {
 
     private static final int A_VERSION = 0x01000001;
     private static final int MAX_DATA = 256 * 1024;
-    private static final int CONNECT_TIMEOUT_MS = 4000;
-    private static final int IO_TIMEOUT_MS = 12000;
+    private static final int CONNECT_TIMEOUT_MS = 5000;
+    private static final int IO_TIMEOUT_MS = 15000;
 
     private Socket socket;
     private DataInputStream in;
@@ -69,25 +72,24 @@ final class AdbClient implements Closeable {
         in = new DataInputStream(socket.getInputStream());
         out = new DataOutputStream(socket.getOutputStream());
 
-        send(A_CNXN, A_VERSION, MAX_DATA, "host::features=shell_v2,cmd\0".getBytes(StandardCharsets.UTF_8));
+        /* 刻意不声明 shell_v2，保持经典协议 */
+        send(A_CNXN, A_VERSION, MAX_DATA, "host::\0".getBytes(StandardCharsets.UTF_8));
 
-        /* 最多 4 次 AUTH 往返（未授权时先送公钥，再签 token） */
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             Packet p = read();
             if (p.is(A_CNXN)) {
-                Log.i(TAG, "connected to " + host);
+                Log.i(TAG, "connected to " + host + " banner="
+                        + new String(p.data, 0, Math.min(p.data.length, 80), StandardCharsets.UTF_8)
+                                .replace('\0', ' '));
                 return;
             }
             if (p.is(A_AUTH)) {
                 if (p.arg0 == AUTH_TOKEN) {
                     byte[] sig = AdbKeys.signToken(p.data);
                     if (sig == null) {
-                        throw new IOException("无 ADB 密钥，无法签名（请先生成）");
+                        throw new IOException("无 ADB 密钥，无法签名");
                     }
                     send(A_AUTH, AUTH_SIGNATURE, 0, sig);
-                } else if (p.arg0 == AUTH_RSA_PUBKEY) {
-                    /* 设备要求重发公钥 */
-                    send(A_AUTH, AUTH_RSA_PUBKEY, 0, AdbKeys.adbPublicKey());
                 } else {
                     send(A_AUTH, AUTH_RSA_PUBKEY, 0, AdbKeys.adbPublicKey());
                 }
@@ -95,16 +97,29 @@ final class AdbClient implements Closeable {
             }
             throw new IOException("握手失败 cmd=0x" + Integer.toHexString(p.cmd));
         }
-        throw new IOException("ADB 授权未通过：请在车机屏幕上点「允许」，或先用电脑 adb connect");
+        throw new IOException("ADB 授权未通过：请在车机点「允许调试」，并关掉其它 ADB 客户端后重试");
     }
 
-    /** 执行 shell 命令，返回 stdout+stderr 文本。 */
+    /** 执行一次性命令。优先 exec:，失败再试 shell:。 */
     String shell(String command) throws IOException {
+        try {
+            return openService("exec:" + command);
+        } catch (IOException e1) {
+            Log.w(TAG, "exec: failed (" + e1.getMessage() + "), try shell:");
+            try {
+                return openService("shell:" + command);
+            } catch (IOException e2) {
+                throw new IOException(e1.getMessage() + " | shell: " + e2.getMessage());
+            }
+        }
+    }
+
+    /** OPEN 一个 adbd 服务并读到 CLSE。 */
+    private String openService(String service) throws IOException {
         int localId = localIdSeq++;
-        byte[] payload = (command + "\0").getBytes(StandardCharsets.UTF_8);
+        byte[] payload = (service + "\0").getBytes(StandardCharsets.UTF_8);
         send(A_OPEN, localId, 0, payload);
 
-        /* 等 OKAY 拿 remote id */
         int remoteId = -1;
         long deadline = System.currentTimeMillis() + IO_TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
@@ -114,26 +129,26 @@ final class AdbClient implements Closeable {
                 break;
             }
             if (p.is(A_CLSE)) {
-                throw new IOException("shell 打开被拒: " + command);
+                /* 无论 arg 是否匹配，打开阶段的 CLSE 都视为拒绝 */
+                try { send(A_CLSE, localId, p.arg0, new byte[0]); } catch (Exception ignored) {}
+                throw new IOException("服务被拒: " + service
+                        + (p.dataLen > 0 ? (" " + new String(p.data, StandardCharsets.UTF_8).trim()) : ""));
             }
-            /* AUTH 重试等杂包忽略 */
         }
-        if (remoteId < 0) throw new IOException("shell 无响应");
+        if (remoteId < 0) throw new IOException("服务无响应: " + service);
 
         StringBuilder sb = new StringBuilder();
-        while (true) {
+        while (System.currentTimeMillis() < deadline) {
             Packet p = read();
             if (p.is(A_WRTE) && p.arg1 == localId) {
                 sb.append(new String(p.data, StandardCharsets.UTF_8));
                 send(A_OKAY, localId, remoteId, new byte[0]);
+                deadline = System.currentTimeMillis() + IO_TIMEOUT_MS; /* 有数据则续命 */
                 continue;
             }
             if (p.is(A_CLSE) && p.arg1 == localId) {
                 send(A_CLSE, localId, remoteId, new byte[0]);
                 break;
-            }
-            if (System.currentTimeMillis() > deadline) {
-                throw new IOException("shell 读超时");
             }
         }
         return sb.toString();
