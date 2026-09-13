@@ -45,6 +45,7 @@ public class PhoneMainActivity extends Activity {
 
     private Button btnService;
     private Button btnCarAdb;
+    private android.widget.EditText etCarIp;
     private TextView tvCarAdbLog;
     private TextView tvCrash;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -209,8 +210,34 @@ public class PhoneMainActivity extends Activity {
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
         btnCarAdb.setText("4 · 扫车机 ADB 一键授权");
         styleButton(btnCarAdb, R.drawable.btn_ghost, C_AMBER);
-        btnCarAdb.setOnClickListener(v -> startCarAdbSetup());
         box.addView(btnCarAdb);
+
+        /* 03 助手同款：手机开热点，车机连上后再扫 ARP/网段 */
+        TextView tip = new TextView(this);
+        tip.setText("推荐：手机开热点 → 车机连上 → 再点上面按钮\n"
+                + "（也可在车机「关于/开发者」里看 IP，填到下面直连）");
+        tip.setTextColor(C_TEXT_DIM);
+        tip.setTextSize(11);
+        tip.setPadding(dp(8), dp(2), dp(8), 0);
+        box.addView(tip);
+
+        etCarIp = new android.widget.EditText(this);
+        etCarIp.setHint("车机 IP（可选，如 192.168.43.100）");
+        etCarIp.setTextColor(C_TEXT);
+        etCarIp.setHintTextColor(C_TEXT_DIM);
+        etCarIp.setTextSize(13);
+        etCarIp.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        etCarIp.setSingleLine(true);
+        etCarIp.setPadding(dp(12), dp(6), dp(12), dp(6));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp(8));
+        bg.setColor(0xFF101725);
+        bg.setStroke(dp(1), 0xFF232C42);
+        etCarIp.setBackground(bg);
+        box.addView(etCarIp, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44)));
+
+        btnCarAdb.setOnClickListener(v -> startCarAdbSetup());
 
         tvCarAdbLog = new TextView(this);
         tvCarAdbLog.setTextColor(C_TEXT_DIM);
@@ -222,20 +249,22 @@ public class PhoneMainActivity extends Activity {
         return box;
     }
 
-    /** 手机连车机热点/同网 Wi-Fi 后，扫 :5555 并代跑 ADB 授权 */
+    /** 手机开热点、车机连上后：ARP/网段扫 :5555，或填 IP 直连授权 */
     private void startCarAdbSetup() {
         if (carAdbRunning) return;
         carAdbRunning = true;
+        String manual = etCarIp.getText() == null ? "" : etCarIp.getText().toString().trim();
         btnCarAdb.setText("4 · 扫描/授权中…");
         tvCarAdbLog.setVisibility(View.VISIBLE);
-        tvCarAdbLog.setText("准备中…");
+        tvCarAdbLog.setText(manual.isEmpty()
+                ? "请保持手机热点开启、车机已连接…\n" : "直连 " + manual + "…\n");
         final StringBuilder log = new StringBuilder();
-        CarAdbSetup.runAsync(this, new CarAdbSetup.Callback() {
+        CarAdbSetup.runAsync(this, manual, new CarAdbSetup.Callback() {
             @Override public void onLog(String line) {
                 log.append(line).append('\n');
                 ui.post(() -> {
                     String s = log.toString();
-                    if (s.length() > 1200) s = "…" + s.substring(s.length() - 1200);
+                    if (s.length() > 1600) s = "…" + s.substring(s.length() - 1600);
                     tvCarAdbLog.setText(s);
                 });
             }

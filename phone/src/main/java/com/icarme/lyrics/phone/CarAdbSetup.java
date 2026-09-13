@@ -2,38 +2,42 @@ package com.icarme.lyrics.phone;
 
 import android.content.Context;
 import android.net.wifi.WifiManager;
-import android.os.Build;
-import android.util.Log;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 车机无线 ADB 一键授权（同 03 车机助手思路）：
- *   扫局域网 :5555 → ADB 握手 → 代跑悬浮窗/定位/通知使用权 → 拉起服务。
- * 仅在手机与车机同一 Wi-Fi/热点下可用；车机需已开启无线调试。
+ * 车机无线 ADB 一键授权（03 车机助手同思路）：
+ *
+ * 推荐拓扑：手机开热点 → 车机连上该热点 → 手机对车机 IP 发 ADB。
+ * 此时手机是 AP：WifiManager.getIpAddress() 常为 0，不能只信它；
+ * 必须：NetworkInterface 扫全部 192.168 网段 + 读 /proc/net/arp 已连客户端 + 常见热点前缀。
  */
 final class CarAdbSetup {
 
     private static final String TAG = "IcarLyrics.CarAdb";
     static final int ADB_PORT = 5555;
-    private static final int SCAN_TIMEOUT_MS = 220;
+    private static final int SCAN_TIMEOUT_MS = 400;
 
     interface Callback {
         void onLog(String line);
@@ -42,7 +46,6 @@ final class CarAdbSetup {
 
     private CarAdbSetup() {}
 
-    /** 从手机 Context 初始化 ADB RSA 密钥 */
     static void ensureKeys(Context ctx) throws Exception {
         File dir = ctx.getFilesDir();
         AdbClient.AdbKeys.ensure(new AdbClient.ContextHolder() {
@@ -69,40 +72,46 @@ final class CarAdbSetup {
         });
     }
 
-    /** 后台跑：扫描 → 授权。回调在主线程外，由 UI 层 post。 */
-    static void runAsync(Context ctx, Callback cb) {
+    /** 后台：发现车机 ADB → 授权。optionalIp 非空则跳过扫描直连。 */
+    static void runAsync(Context ctx, String optionalIp, Callback cb) {
         new Thread(() -> {
             try {
                 ensureKeys(ctx);
-                cb.onLog("正在扫描局域网 ADB（:5555）…");
-                List<String> hosts = scanLan(ctx);
+                List<String> hosts = new ArrayList<>();
+                String manual = optionalIp == null ? "" : optionalIp.trim();
+                if (manual.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+                    hosts.add(manual);
+                    cb.onLog("直连手动指定: " + manual);
+                } else {
+                    hosts = discoverHosts(ctx, cb);
+                }
                 if (hosts.isEmpty()) {
-                    cb.onDone(false, "未发现开放 ADB 的设备。请确认：手机与车机同一 Wi-Fi/热点，且车机已开无线调试");
+                    cb.onDone(false, "未发现 ADB。请：1) 手机开热点、车机连上；"
+                            + "2) 车机无线调试已开；3) 或在输入框填车机 IP 再试");
                     return;
                 }
-                cb.onLog("发现 " + hosts.size() + " 台: " + String.join(", ", hosts));
+                cb.onLog("候选: " + String.join(", ", hosts));
                 Exception last = null;
                 for (String host : hosts) {
                     try {
                         cb.onLog("连接 " + host + ":" + ADB_PORT + " …");
                         grantOnHost(host, cb);
-                        cb.onDone(true, "已授权车机 " + host + "（悬浮窗/定位/通知使用权），并尝试启动服务");
+                        cb.onDone(true, "已授权车机 " + host);
                         return;
                     } catch (Exception e) {
                         last = e;
                         cb.onLog(host + " 失败: " + e.getMessage());
                     }
                 }
-                cb.onDone(false, "全部连接失败。"
-                        + (last != null ? "最后错误: " + last.getMessage()
-                        + "。若车机弹出「允许调试」，请点允许后重试。" : ""));
+                cb.onDone(false, "连接/授权失败。"
+                        + (last != null ? "最后: " + last.getMessage()
+                        + "。若车机弹「允许调试」请点允许后重试。" : ""));
             } catch (Exception e) {
                 cb.onDone(false, "异常: " + e.getMessage());
             }
         }, "car-adb-setup").start();
     }
 
-    /** 对已知 host 直接授权（跳过扫描） */
     static void grantOnHost(String host, Callback cb) throws IOException {
         try (AdbClient adb = new AdbClient()) {
             adb.connect(host, ADB_PORT);
@@ -110,11 +119,9 @@ final class CarAdbSetup {
             if (banner == null || !banner.contains("ok")) {
                 throw new IOException("shell 通道异常");
             }
-            /* 与 AdbHelper / README 一致的车机三项 + 启动 */
             runCmd(adb, cb, "appops set com.icarme.lyrics SYSTEM_ALERT_WINDOW allow");
             runCmd(adb, cb, "pm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
             runCmd(adb, cb, "cmd notification allow_listener com.icarme.lyrics/.CarMediaListener");
-            /* 尽力而为：部分 ROM 对 usage stats 名不同 */
             runCmd(adb, cb, "appops set com.icarme.lyrics android:get_usage_stats allow");
             runCmd(adb, cb, "am broadcast -a com.icarme.lyrics.START -n com.icarme.lyrics/.AdbReceiver");
             runCmd(adb, cb, "am start -n com.icarme.lyrics/.MainActivity");
@@ -138,32 +145,68 @@ final class CarAdbSetup {
         return i > 0 ? s.substring(0, i) : s;
     }
 
-    /** 扫本机所在网段的 :5555（并行 TCP connect） */
-    static List<String> scanLan(Context ctx) {
-        String prefix = localLanPrefix(ctx);
-        if (prefix == null) return Collections.emptyList();
-        List<String> candidates = new ArrayList<>(254);
-        for (int i = 1; i <= 254; i++) candidates.add(prefix + i);
-        /* 排除本机 */
-        String self = localIpv4(ctx);
-        if (self != null) candidates.remove(self);
+    /* ---------------- 发现：ARP 优先 + 多网段 + 常见热点前缀 ---------------- */
 
-        ExecutorService pool = Executors.newFixedThreadPool(64);
-        List<String> hit = Collections.synchronizedList(new ArrayList<>());
+    static List<String> discoverHosts(Context ctx, Callback cb) {
+        LinkedHashSet<String> ordered = new LinkedHashSet<>();
+
+        /* 1) ARP 表：车机已连热点时通常已有条目，最快最准 */
+        List<String> arp = readArpHosts();
+        cb.onLog("本机 ARP: " + (arp.isEmpty() ? "（空）" : String.join(", ", arp)));
+        ordered.addAll(arp);
+
+        /* 2) 本机全部 192.168/10/172 私网 IPv4 的 /24 */
+        List<String> selfs = allLocalIpv4(ctx);
+        cb.onLog("本机地址: " + (selfs.isEmpty() ? "（无）" : String.join(", ", selfs)));
+        LinkedHashSet<String> prefixes = new LinkedHashSet<>();
+        for (String ip : selfs) prefixes.add(prefixOf(ip));
+        /* 3) 手机热点常见网段（即使本机 IP 读不到也扫） */
+        prefixes.add("192.168.43.");
+        prefixes.add("192.168.49.");
+        prefixes.add("192.168.137.");
+        prefixes.remove(null);
+        cb.onLog("扫描网段: " + String.join(" ", prefixes));
+
+        List<String> candidates = new ArrayList<>(ordered);
+        String self = selfs.isEmpty() ? null : selfs.get(0);
+        for (String prefix : prefixes) {
+            for (int i = 1; i <= 254; i++) {
+                String ip = prefix + i;
+                if (ip.equals(self) || ordered.contains(ip)) continue;
+                candidates.add(ip);
+            }
+        }
+
+        /* 先快速探测 ARP/已知，再全段 */
+        List<String> hit = new ArrayList<>();
+        probeAll(candidates.subList(0, Math.min(ordered.size(), candidates.size())), hit, 500);
+        if (hit.isEmpty()) {
+            probeAll(candidates, hit, SCAN_TIMEOUT_MS);
+        }
+        Collections.sort(hit);
+        /* ARP 命中的排前面 */
+        List<String> result = new ArrayList<>();
+        for (String a : arp) if (hit.contains(a)) result.add(a);
+        for (String h : hit) if (!result.contains(h)) result.add(h);
+        return result;
+    }
+
+    private static void probeAll(List<String> ips, List<String> hit, int timeoutMs) {
+        if (ips.isEmpty()) return;
+        ExecutorService pool = Executors.newFixedThreadPool(48);
+        List<String> sync = Collections.synchronizedList(hit);
         List<Future<?>> fs = new ArrayList<>();
-        for (String ip : candidates) {
+        for (String ip : ips) {
             fs.add(pool.submit((Callable<Void>) () -> {
-                if (probe(ip, ADB_PORT, SCAN_TIMEOUT_MS)) hit.add(ip);
+                if (probe(ip, ADB_PORT, timeoutMs)) sync.add(ip);
                 return null;
             }));
         }
         for (Future<?> f : fs) {
-            try { f.get(SCAN_TIMEOUT_MS + 800, TimeUnit.MILLISECONDS); }
+            try { f.get(timeoutMs + 1200, TimeUnit.MILLISECONDS); }
             catch (Exception ignored) {}
         }
         pool.shutdownNow();
-        Collections.sort(hit);
-        return hit;
     }
 
     private static boolean probe(String ip, int port, int timeoutMs) {
@@ -175,17 +218,47 @@ final class CarAdbSetup {
         }
     }
 
-    /** 取当前 Wi-Fi/热点 IPv4，如 192.168.43.100 */
-    static String localIpv4(Context ctx) {
+    /** /proc/net/arp：IP 已连过的客户端（车机连上热点后立刻可见） */
+    static List<String> readArpHosts() {
+        List<String> out = new ArrayList<>();
+        File arp = new File("/proc/net/arp");
+        if (!arp.exists()) return out;
+        try (BufferedReader br = new BufferedReader(new FileReader(arp))) {
+            String line;
+            boolean first = true;
+            while ((line = br.readLine()) != null) {
+                if (first) { first = false; continue; }
+                String[] p = line.trim().split("\\s+");
+                if (p.length < 4) continue;
+                String ip = p[0];
+                String flag = p[2];
+                /* 0x0 = incomplete */
+                if ("0x0".equalsIgnoreCase(flag)) continue;
+                if (ip.matches("\\d{1,3}(\\.\\d{1,3}){3}") && !ip.startsWith("0.")) {
+                    out.add(ip);
+                }
+            }
+        } catch (Exception ignored) {}
+        return out;
+    }
+
+    /** 收集本机所有非回环 IPv4（优先 wlan/ap，排除 rmnet 蜂窝） */
+    static List<String> allLocalIpv4(Context ctx) {
+        LinkedHashSet<String> set = new LinkedHashSet<>();
         try {
             List<NetworkInterface> nifs = Collections.list(NetworkInterface.getNetworkInterfaces());
             for (NetworkInterface nif : nifs) {
                 if (!nif.isUp() || nif.isLoopback()) continue;
+                String name = nif.getName() == null ? "" : nif.getName().toLowerCase(Locale.US);
+                if (name.startsWith("rmnet") || name.startsWith("ccmni")
+                        || name.startsWith("clat") || name.startsWith("dummy")) {
+                    continue;
+                }
                 List<InetAddress> addrs = Collections.list(nif.getInetAddresses());
                 for (InetAddress a : addrs) {
-                    if (a.isLoopbackAddress() || !(a instanceof java.net.Inet4Address)) continue;
+                    if (a.isLoopbackAddress() || !(a instanceof Inet4Address)) continue;
                     String s = a.getHostAddress();
-                    if (s != null && !s.startsWith("127.")) return s;
+                    if (s != null && !s.startsWith("127.")) set.add(s);
                 }
             }
         } catch (Exception ignored) {}
@@ -195,19 +268,17 @@ final class CarAdbSetup {
             if (wm != null) {
                 int ip = wm.getConnectionInfo().getIpAddress();
                 if (ip != 0) {
-                    return String.format(java.util.Locale.US, "%d.%d.%d.%d",
-                            ip & 0xff, (ip >> 8) & 0xff, (ip >> 16) & 0xff, (ip >> 24) & 0xff);
+                    set.add(String.format(Locale.US, "%d.%d.%d.%d",
+                            ip & 0xff, (ip >> 8) & 0xff, (ip >> 16) & 0xff, (ip >> 24) & 0xff));
                 }
             }
         } catch (Exception ignored) {}
-        return null;
+        return new ArrayList<>(set);
     }
 
-    static String localLanPrefix(Context ctx) {
-        String ip = localIpv4(ctx);
+    private static String prefixOf(String ip) {
         if (ip == null) return null;
         int cut = ip.lastIndexOf('.');
-        if (cut <= 0) return null;
-        return ip.substring(0, cut + 1);
+        return cut <= 0 ? null : ip.substring(0, cut + 1);
     }
 }
