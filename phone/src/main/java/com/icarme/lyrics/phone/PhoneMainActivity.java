@@ -37,9 +37,9 @@ public class PhoneMainActivity extends Activity {
     private static final int C_RED       = 0xFFF87171;
     private static final int C_AMBER     = 0xFFFBBF24;
 
-    private static final int ROW_COUNT = 8;
-    private static final int R_NOTIF = 0, R_SERVICE = 1, R_BLE = 2, R_LISTENER = 3,
-            R_MEDIA = 4, R_TRACK = 5, R_FETCH = 6, R_STATS = 7;
+    private static final int ROW_COUNT = 7;
+    private static final int R_NOTIF = 0, R_SERVICE = 1, R_BLE = 2,
+            R_MEDIA = 3, R_TRACK = 4, R_FETCH = 5, R_STATS = 6;
     private final View[] rowDots = new View[ROW_COUNT];
     private final TextView[] rowValues = new TextView[ROW_COUNT];
 
@@ -139,7 +139,7 @@ public class PhoneMainActivity extends Activity {
         lp.topMargin = dp(18);
         card.setLayoutParams(lp);
 
-        String[] labels = {"通知使用权", "推送服务", "BLE", "监听服务", "媒体检测", "当前曲目", "取词", "推送统计"};
+        String[] labels = {"通知使用权", "推送服务", "BLE", "媒体检测", "当前曲目", "取词", "推送统计"};
         for (int i = 0; i < ROW_COUNT; i++) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -594,9 +594,6 @@ public class PhoneMainActivity extends Activity {
         setDot(R_BLE, ble.contains("已连接") ? C_GREEN
                 : ble.contains("订阅") || ble.contains("连接") ? C_PRIMARY : C_AMBER);
         rowValues[R_BLE].setText(ble);
-
-        setDot(R_LISTENER, running && m.listenerState.contains("已绑定") ? C_GREEN : C_AMBER);
-        rowValues[R_LISTENER].setText(running && !m.listenerState.isEmpty() ? m.listenerState : "—");
 
         rowValues[R_MEDIA].setText(running && !m.diag.isEmpty() ? m.diag : "—");
         setDot(R_MEDIA, running && m.diag.contains("播放中") ? C_GREEN : 0xFF4B5563);
