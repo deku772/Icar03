@@ -48,6 +48,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     /** 连续未播放超过此时长 → 停 BLE 广播并断开车机；恢复播放立即重开广播 */
     private static final long IDLE_PAUSE_MS = 12000;
     private static final long IDLE_CHECK_MS = 3000;
+    /** 车机 BLE 连续未连接超过此时长 → 整服务退出，避免空耗电 */
+    private static final long BLE_GIVEUP_MS = 5 * 60 * 1000L;
 
     public static volatile boolean running = false;
     private static PlaybackService instance;
@@ -134,6 +136,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     private long lastPlayingTs = 0;    /* 最近一次观察到“正在播放”的时刻 */
     private boolean bleWasPlaying = false;
     private Runnable idleCheckTask;
+    private long lastBleConnectedTs = 0; /* 最近一次车机 BLE 已连接（已订阅） */
+    private boolean bleEverConnected = false;
 
     @Override
     public IBinder onBind(Intent intent) { return null; }
@@ -159,7 +163,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         }
         mon.bleState = "未启动";
         NotificationListener.setCallback(this);
-        lastPlayingTs = System.currentTimeMillis(); /* 从启动算起，未播放则超时静默 */
+        lastPlayingTs = System.currentTimeMillis();
+        lastBleConnectedTs = System.currentTimeMillis(); /* 给首连 5 分钟窗口 */
         startMediaMonitor();
         startIdleCheck();
         main.post(() -> {
@@ -400,6 +405,16 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     private void maybePauseBleForIdle() {
         if (ble == null) return;
+        if (ble.isConnected()) {
+            lastBleConnectedTs = System.currentTimeMillis();
+            bleEverConnected = true;
+        }
+        /* 车机 5 分钟未连：整服务退出（不改 auto_start，再打开 App 即重启） */
+        if (System.currentTimeMillis() - lastBleConnectedTs >= BLE_GIVEUP_MS) {
+            updateNotification("车机 5 分钟未连接，已自动停止省电");
+            stopSelf();
+            return;
+        }
         boolean playing = lastPlaying;
         if (playing) {
             lastPlayingTs = System.currentTimeMillis();
@@ -630,6 +645,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     private void onBleState(String state, String detail) {
         if ("connected".equals(state)) {
+            lastBleConnectedTs = System.currentTimeMillis();
+            bleEverConnected = true;
             if (!curKey.isEmpty()) {
                 /* 连接建立时若已在放歌：立即补推当前曲目（不等下一首） */
                 String[] parts = curKey.split("\\|", 2);
