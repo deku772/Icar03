@@ -217,11 +217,11 @@ public class PhoneMainActivity extends Activity {
         btnService.setOnClickListener(v -> toggleService());
         box.addView(btnService);
 
-        /* 5 检查更新 */
+        /* 5 检查更新：与 1–4 同为蓝底主按钮 */
         Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
         btnUpd.setText("5 · 检查更新（GitHub）");
-        styleButton(btnUpd, R.drawable.btn_ghost, C_PRIMARY);
+        styleButton(btnUpd, R.drawable.btn_primary, 0xFFFFFFFF);
         btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
                 BuildConfig.VERSION_NAME, false));
         box.addView(btnUpd);

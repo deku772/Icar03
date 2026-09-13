@@ -163,41 +163,70 @@ final class CarAdbSetup {
         return hosts;
     }
 
-    /** GitHub 最新 Car APK，失败走 ghfast 镜像 */
+    /**
+     * 下载最新车机 APK：默认国内镜像，慢/失败再回退 GitHub。
+     * 固定写到 cache/update/IcarLyrics-Car-push.apk，不会堆积多个包。
+     */
     private static java.io.File downloadCarApk(Context ctx, Callback cb) {
+        String gh = "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk";
         String[] urls = {
-                "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk",
-                "https://ghfast.top/https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk"
+                "https://ghfast.top/" + gh,   /* 默认镜像，国内快 */
+                gh                              /* 镜像失败再回官方 */
         };
         java.io.File out = new java.io.File(ctx.getCacheDir(), "update/IcarLyrics-Car-push.apk");
         //noinspection ResultOfMethodCallIgnored
         out.getParentFile().mkdirs();
-        for (String u : urls) {
+        if (out.exists()) //noinspection ResultOfMethodCallIgnored
+            out.delete();
+
+        for (int i = 0; i < urls.length; i++) {
+            String u = urls[i];
+            String label = i == 0 ? "镜像" : "GitHub";
+            cb.onLog("从" + label + "下载…");
             try {
                 java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
-                c.setConnectTimeout(15000);
-                c.setReadTimeout(90000);
+                /* 镜像 20s 连不上就换源；官方放宽 */
+                c.setConnectTimeout(i == 0 ? 12000 : 20000);
+                c.setReadTimeout(120000);
                 c.setInstanceFollowRedirects(true);
                 c.setRequestProperty("User-Agent", "IcarLyrics-Updater");
-                if (c.getResponseCode() != 200) {
-                    cb.onLog("下载 HTTP " + c.getResponseCode());
+                int code = c.getResponseCode();
+                if (code != 200) {
+                    cb.onLog(label + " HTTP " + code);
                     c.disconnect();
                     continue;
                 }
+                int contentLen = c.getContentLength();
                 try (java.io.InputStream in = c.getInputStream();
                      java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
                     byte[] buf = new byte[64 * 1024];
-                    int n; long total = 0;
+                    int n;
+                    long read = 0;
+                    int lastPct = -1;
+                    long lastLogAt = 0;
                     while ((n = in.read(buf)) > 0) {
                         fos.write(buf, 0, n);
-                        total += n;
+                        read += n;
+                        long now = System.currentTimeMillis();
+                        if (contentLen > 0) {
+                            int pct = (int) (read * 100L / contentLen);
+                            if (pct >= lastPct + 10 && now - lastLogAt > 400) {
+                                lastPct = pct;
+                                lastLogAt = now;
+                                cb.onLog(label + " 下载 " + pct + "%（"
+                                        + (read / 1024) + "/" + (contentLen / 1024) + "KB）");
+                            }
+                        } else if (now - lastLogAt > 1500) {
+                            lastLogAt = now;
+                            cb.onLog(label + " 已下载 " + (read / 1024) + "KB…");
+                        }
                     }
-                    cb.onLog("APK " + (total / 1024) + "KB ← " + new java.net.URL(u).getHost());
+                    cb.onLog(label + " 完成 " + (read / 1024) + "KB");
                 }
                 c.disconnect();
                 if (out.length() > 10000) return out;
             } catch (Exception e) {
-                cb.onLog("下载失败: " + e.getMessage());
+                cb.onLog(label + " 失败: " + e.getMessage());
             }
         }
         return null;
