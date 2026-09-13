@@ -1,5 +1,6 @@
 package com.icarme.lyrics;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
@@ -7,6 +8,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
 import android.view.WindowManager;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import org.json.JSONObject;
 
@@ -16,7 +19,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-/** 从 GitHub Releases API 检查最新版本；有新版本弹窗打开下载页。 */
+/** 从 GitHub Releases API 检查最新版本；有新版本则应用内下载并拉起系统安装。 */
 public final class UpdateChecker {
 
     private static final String TAG = "IcarLyrics.Update";
@@ -92,44 +95,102 @@ public final class UpdateChecker {
         return n.length() == 0 ? 0 : Integer.parseInt(n.toString());
     }
 
-    /** 检查并弹窗（silence=true 无更新/失败不打扰） */
+    /** 检查并弹窗：有新版本则应用内下载车机端 APK 并拉起系统安装（不再打开浏览器） */
     public static void checkAndPrompt(Context ctx, String currentVersion, boolean silence) {
         checkAsync(ctx, currentVersion, (has, tag, url, err) -> {
             if (has) {
+                showInstallDialog(ctx, currentVersion, tag);
+            } else if (!silence) {
+                String msg = err != null
+                        ? "检查失败: " + err
+                        : "已是最新版本 " + currentVersion;
                 try {
-                    AlertDialog.Builder b = new AlertDialog.Builder(
-                            new android.view.ContextThemeWrapper(ctx,
-                                    android.R.style.Theme_Material_Dialog))
-                            .setTitle("发现新版本 " + tag)
-                            .setMessage("当前 " + currentVersion + " → 最新 " + tag
-                                    + "\n是否打开下载页？")
-                            .setPositiveButton("下载", (d, w) -> {
-                                try {
-                                    Intent i = new Intent(Intent.ACTION_VIEW,
-                                            Uri.parse(url.isEmpty() ? RELEASES : url));
-                                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                    ctx.startActivity(i);
-                                } catch (Exception ignored) {}
-                            })
-                            .setNegativeButton("稍后", null);
-                    AlertDialog dlg = b.create();
-                    if (Build.VERSION.SDK_INT >= 26) {
-                        dlg.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
-                    }
-                    dlg.show();
-                } catch (Throwable t) {
-                    /* 悬浮窗场景可能无法弹 Activity 对话框，降级为系统浏览器 */
-                    try {
-                        Intent i = new Intent(Intent.ACTION_VIEW,
-                                Uri.parse(url.isEmpty() ? RELEASES : url));
-                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        ctx.startActivity(i);
-                    } catch (Exception ignored) {}
-                }
-            } else if (!silence && err != null) {
-                Log.i(TAG, "check: " + err);
+                    android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show();
+                } catch (Exception ignored) {}
+                Log.i(TAG, "check: " + msg);
             }
         });
+    }
+
+    /** 发现新版本：确认后应用内下载 + PackageInstaller 系统安装界面 */
+    private static void showInstallDialog(Context ctx, String currentVersion, String tag) {
+        if (!(ctx instanceof Activity)) {
+            try {
+                Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(RELEASES));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+            } catch (Exception ignored) {}
+            return;
+        }
+        Activity act = (Activity) ctx;
+        LinearLayout box = new LinearLayout(act);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (act.getResources().getDisplayMetrics().density * 20);
+        box.setPadding(pad, pad / 2, pad, pad / 2);
+        TextView msg = new TextView(act);
+        msg.setText("当前 " + currentVersion + " → 最新 " + tag
+                + "\n将下载车机端 APK，完成后打开系统安装界面");
+        msg.setTextSize(14);
+        box.addView(msg);
+
+        AlertDialog pick = new AlertDialog.Builder(
+                new android.view.ContextThemeWrapper(act, android.R.style.Theme_Material_Dialog))
+                .setTitle("发现新版本 " + tag)
+                .setView(box)
+                .setNegativeButton("稍后", null)
+                .setPositiveButton("下载并安装", null)
+                .create();
+        if (Build.VERSION.SDK_INT >= 26) {
+            pick.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        }
+        try {
+            pick.show();
+            pick.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                pick.dismiss();
+                showProgressDialog(act, tag);
+            });
+        } catch (Throwable t) {
+            showProgressDialog(act, tag);
+        }
+    }
+
+    private static void showProgressDialog(Activity act, String tag) {
+        LinearLayout box = new LinearLayout(act);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (act.getResources().getDisplayMetrics().density * 20);
+        box.setPadding(pad, pad / 2, pad, pad / 2);
+        TextView progress = new TextView(act);
+        progress.setText("连接下载源…");
+        progress.setTextSize(14);
+        box.addView(progress);
+
+        AlertDialog pd = new AlertDialog.Builder(
+                new android.view.ContextThemeWrapper(act, android.R.style.Theme_Material_Dialog))
+                .setTitle("安装 " + tag)
+                .setView(box)
+                .setCancelable(false)
+                .setNegativeButton("取消", null)
+                .create();
+        if (Build.VERSION.SDK_INT >= 26) {
+            pd.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        }
+        try { pd.show(); } catch (Throwable ignored) {}
+
+        ApkInstaller.downloadAndInstall(act, ApkInstaller.CAR_APK_URL, pd, progress,
+                new ApkInstaller.Callback() {
+                    @Override public void onLog(String line) {
+                        act.runOnUiThread(() -> progress.setText(line));
+                    }
+                    @Override public void onDone(boolean ok, String message) {
+                        act.runOnUiThread(() -> {
+                            if (pd.isShowing()) pd.dismiss();
+                            try {
+                                android.widget.Toast.makeText(act, message,
+                                        android.widget.Toast.LENGTH_LONG).show();
+                            } catch (Exception ignored) {}
+                        });
+                    }
+                });
     }
 
     public static final String RELEASES = "https://github.com/deku772/Icar03/releases/latest";
