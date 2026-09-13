@@ -22,6 +22,7 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.math.BigInteger;
 import java.util.Arrays;
+import java.util.Locale;
 
 /**
  * 极简无线 ADB 客户端（手机连车机 :5555）。
@@ -152,6 +153,109 @@ final class AdbClient implements Closeable {
             }
         }
         return sb.toString();
+    }
+
+    /* ---------------- sync: 推文件 + pm install（03 助手同款路径） ---------------- */
+
+    /**
+     * 把本地 APK 推到车机 /data/local/tmp 并 pm install -r。
+     * 比手机本地拉安装器更省事：不走「未知来源/悬浮窗」链路。
+     */
+    void pushAndInstall(java.io.File apk, String remoteName) throws IOException {
+        if (apk == null || !apk.isFile() || apk.length() < 1000) {
+            throw new IOException("APK 文件无效");
+        }
+        String remote = "/data/local/tmp/" + remoteName;
+        pushFile(apk, remote);
+        String out = shell("pm install -r " + remote);
+        if (out == null) out = "";
+        String t = out.trim();
+        if (!t.contains("Success")) {
+            /* 部分 ROM 只回空/Warning */
+            if (t.toLowerCase(Locale.US).contains("fail")) {
+                throw new IOException("pm install 失败: " + firstLine(t));
+            }
+        }
+        shell("rm -f " + remote);
+    }
+
+    private static String firstLine(String s) {
+        int i = s.indexOf('\n');
+        return i > 0 ? s.substring(0, i) : s;
+    }
+
+    /** ADB sync SEND/DATA/DONE 推单个文件 */
+    private void pushFile(java.io.File local, String remotePath) throws IOException {
+        int localId = localIdSeq++;
+        send(A_OPEN, localId, 0, "sync:\0".getBytes(StandardCharsets.UTF_8));
+        int remoteId = waitOkay(localId);
+
+        /* SEND path,mode */
+        byte[] path = (remotePath + ",0755").getBytes(StandardCharsets.UTF_8);
+        byte[] sendReq = new byte[8 + path.length];
+        System.arraycopy("SEND".getBytes(StandardCharsets.US_ASCII), 0, sendReq, 0, 4);
+        putLe32(sendReq, 4, path.length);
+        System.arraycopy(path, 0, sendReq, 8, path.length);
+        writeRaw(sendReq);
+        readSyncOk("SEND");
+
+        try (java.io.InputStream in = new java.io.FileInputStream(local)) {
+            byte[] chunk = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(chunk)) > 0) {
+                byte[] dataReq = new byte[8 + n];
+                System.arraycopy("DATA".getBytes(StandardCharsets.US_ASCII), 0, dataReq, 0, 4);
+                putLe32(dataReq, 4, n);
+                System.arraycopy(chunk, 0, dataReq, 8, n);
+                writeRaw(dataReq);
+            }
+        }
+        byte[] done = new byte[8];
+        System.arraycopy("DONE".getBytes(StandardCharsets.US_ASCII), 0, done, 0, 4);
+        putLe32(done, 4, (int) (System.currentTimeMillis() / 1000L));
+        writeRaw(done);
+        readSyncOk("DONE");
+
+        send(A_CLSE, localId, remoteId, new byte[0]);
+    }
+
+    private int waitOkay(int localId) throws IOException {
+        long deadline = System.currentTimeMillis() + IO_TIMEOUT_MS;
+        while (System.currentTimeMillis() < deadline) {
+            Packet p = read();
+            if (p.is(A_OKAY) && p.arg1 == localId) return p.arg0;
+            if (p.is(A_CLSE)) throw new IOException("sync 打开被拒");
+        }
+        throw new IOException("sync 无响应");
+    }
+
+    /** sync 应答：8 字节 "OKAY"/"FAIL" + len */
+    private void readSyncOk(String phase) throws IOException {
+        byte[] h = new byte[8];
+        in.readFully(h);
+        String id = new String(h, 0, 4, StandardCharsets.US_ASCII);
+        if (!"OKAY".equals(id)) {
+            int len = leInt(h, 4);
+            String msg = "";
+            if (len > 0 && len < 512) {
+                byte[] b = new byte[len];
+                in.readFully(b);
+                msg = new String(b, StandardCharsets.UTF_8);
+            }
+            throw new IOException("sync " + phase + " 失败: " + msg);
+        }
+    }
+
+    private void writeRaw(byte[] data) throws IOException {
+        out.write(data);
+        out.flush();
+    }
+
+    private static void putLe32(byte[] b, int off, int v) {
+        b[off] = (byte) v;
+        b[off + 1] = (byte) (v >> 8);
+        b[off + 2] = (byte) (v >> 16);
+        b[off + 3] = (byte) (v >> 24);
     }
 
     private void send(int cmd, int arg0, int arg1, byte[] data) throws IOException {

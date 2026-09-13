@@ -72,29 +72,20 @@ final class CarAdbSetup {
         });
     }
 
-    /** 后台：发现车机 ADB → 授权。optionalIp 非空则跳过扫描直连。 */
+    /** 一键授权车机（已有 APK 时） */
     static void runAsync(Context ctx, String optionalIp, Callback cb) {
         new Thread(() -> {
             try {
                 ensureKeys(ctx);
-                List<String> hosts = new ArrayList<>();
-                String manual = optionalIp == null ? "" : optionalIp.trim();
-                if (manual.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
-                    hosts.add(manual);
-                    cb.onLog("直连手动指定: " + manual);
-                } else {
-                    hosts = discoverHosts(ctx, cb);
-                }
+                List<String> hosts = resolveHosts(ctx, optionalIp, cb);
                 if (hosts.isEmpty()) {
-                    cb.onDone(false, "未发现 ADB。请：1) 手机开热点、车机连上；"
-                            + "2) 车机无线调试已开；3) 或在输入框填车机 IP 再试");
+                    cb.onDone(false, "未发现 ADB。请：手机开热点、车机连上；或填车机 IP");
                     return;
                 }
-                cb.onLog("候选: " + String.join(", ", hosts));
                 Exception last = null;
                 for (String host : hosts) {
                     try {
-                        cb.onLog("连接 " + host + ":" + ADB_PORT + " …");
+                        cb.onLog("授权 " + host + " …");
                         grantOnHost(host, cb);
                         cb.onDone(true, "已授权车机 " + host);
                         return;
@@ -103,13 +94,113 @@ final class CarAdbSetup {
                         cb.onLog(host + " 失败: " + e.getMessage());
                     }
                 }
-                cb.onDone(false, "连接/授权失败。"
-                        + (last != null ? "最后: " + last.getMessage()
-                        + "。若车机弹「允许调试」请点允许后重试。" : ""));
+                cb.onDone(false, "授权失败。"
+                        + (last != null ? "最后: " + last.getMessage() : ""));
             } catch (Exception e) {
                 cb.onDone(false, "异常: " + e.getMessage());
             }
-        }, "car-adb-setup").start();
+        }, "car-adb-grant").start();
+    }
+
+    /**
+     * 一键安装车机端：GitHub 下 APK → ADB sync 推送 → pm install → 再授权并启动。
+     * 03 车机助手同路径，不在车机上点「未知来源」。
+     */
+    static void runInstallAsync(Context ctx, String optionalIp, Callback cb) {
+        new Thread(() -> {
+            try {
+                ensureKeys(ctx);
+                List<String> hosts = resolveHosts(ctx, optionalIp, cb);
+                if (hosts.isEmpty()) {
+                    cb.onDone(false, "未发现 ADB。请：手机开热点、车机连上；或填车机 IP");
+                    return;
+                }
+                cb.onLog("下载车机端 APK…");
+                java.io.File apk = downloadCarApk(ctx, cb);
+                if (apk == null) {
+                    cb.onDone(false, "APK 下载失败");
+                    return;
+                }
+                Exception last = null;
+                for (String host : hosts) {
+                    try {
+                        cb.onLog("安装到 " + host + " …");
+                        try (AdbClient adb = new AdbClient()) {
+                            adb.connect(host, ADB_PORT);
+                            String echo = adb.shell("echo ok");
+                            if (echo == null || !echo.contains("ok")) {
+                                throw new IOException("shell 通道异常");
+                            }
+                            adb.pushAndInstall(apk, "IcarLyrics-Car.apk");
+                            cb.onLog("pm install 完成，开始授权…");
+                            grantVia(adb, cb);
+                        }
+                        cb.onDone(true, "车机 " + host + " 安装并授权完成");
+                        return;
+                    } catch (Exception e) {
+                        last = e;
+                        cb.onLog(host + " 失败: " + e.getMessage());
+                    }
+                }
+                cb.onDone(false, "安装失败。"
+                        + (last != null ? "最后: " + last.getMessage() : ""));
+            } catch (Exception e) {
+                cb.onDone(false, "异常: " + e.getMessage());
+            }
+        }, "car-adb-install").start();
+    }
+
+    private static List<String> resolveHosts(Context ctx, String optionalIp, Callback cb) {
+        List<String> hosts = new ArrayList<>();
+        String manual = optionalIp == null ? "" : optionalIp.trim();
+        if (manual.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+            hosts.add(manual);
+            cb.onLog("直连手动指定: " + manual);
+            return hosts;
+        }
+        hosts = discoverHosts(ctx, cb);
+        if (!hosts.isEmpty()) cb.onLog("候选: " + String.join(", ", hosts));
+        return hosts;
+    }
+
+    /** GitHub 最新 Car APK，失败走 ghfast 镜像 */
+    private static java.io.File downloadCarApk(Context ctx, Callback cb) {
+        String[] urls = {
+                "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk",
+                "https://ghfast.top/https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk"
+        };
+        java.io.File out = new java.io.File(ctx.getCacheDir(), "update/IcarLyrics-Car-push.apk");
+        //noinspection ResultOfMethodCallIgnored
+        out.getParentFile().mkdirs();
+        for (String u : urls) {
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(90000);
+                c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", "IcarLyrics-Updater");
+                if (c.getResponseCode() != 200) {
+                    cb.onLog("下载 HTTP " + c.getResponseCode());
+                    c.disconnect();
+                    continue;
+                }
+                try (java.io.InputStream in = c.getInputStream();
+                     java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                    byte[] buf = new byte[64 * 1024];
+                    int n; long total = 0;
+                    while ((n = in.read(buf)) > 0) {
+                        fos.write(buf, 0, n);
+                        total += n;
+                    }
+                    cb.onLog("APK " + (total / 1024) + "KB ← " + new java.net.URL(u).getHost());
+                }
+                c.disconnect();
+                if (out.length() > 10000) return out;
+            } catch (Exception e) {
+                cb.onLog("下载失败: " + e.getMessage());
+            }
+        }
+        return null;
     }
 
     static void grantOnHost(String host, Callback cb) throws IOException {
@@ -119,13 +210,17 @@ final class CarAdbSetup {
             if (banner == null || !banner.contains("ok")) {
                 throw new IOException("shell 通道异常（若 ADB Helper/电脑 adb 已连接，请先断开再试）");
             }
-            runCmd(adb, cb, "appops set com.icarme.lyrics SYSTEM_ALERT_WINDOW allow");
-            runCmd(adb, cb, "pm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
-            runCmd(adb, cb, "cmd notification allow_listener com.icarme.lyrics/.CarMediaListener");
-            runCmd(adb, cb, "appops set com.icarme.lyrics android:get_usage_stats allow");
-            runCmd(adb, cb, "am broadcast -a com.icarme.lyrics.START -n com.icarme.lyrics/.AdbReceiver");
-            runCmd(adb, cb, "am start -n com.icarme.lyrics/.MainActivity");
+            grantVia(adb, cb);
         }
+    }
+
+    private static void grantVia(AdbClient adb, Callback cb) throws IOException {
+        runCmd(adb, cb, "appops set com.icarme.lyrics SYSTEM_ALERT_WINDOW allow");
+        runCmd(adb, cb, "pm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
+        runCmd(adb, cb, "cmd notification allow_listener com.icarme.lyrics/.CarMediaListener");
+        runCmd(adb, cb, "appops set com.icarme.lyrics android:get_usage_stats allow");
+        runCmd(adb, cb, "am broadcast -a com.icarme.lyrics.START -n com.icarme.lyrics/.AdbReceiver");
+        runCmd(adb, cb, "am start -n com.icarme.lyrics/.MainActivity");
     }
 
     private static String runCmd(AdbClient adb, Callback cb, String cmd) {
