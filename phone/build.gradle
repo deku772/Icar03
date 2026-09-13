@@ -11,14 +11,28 @@ android {
         applicationId 'com.icarme.lyrics.phone'
         minSdk 28          /* 覆盖 Android 9+，红米 K20 Pro (Android 11) 可用 */
         targetSdk 28       /* 侧载 APK，低 target 减少 BLE/后台行为差异 */
-        versionCode 10
-        versionName '2.5.0'
+        versionCode 11
+        versionName '2.5.1'
+    }
+
+    /* 与车机端同一把项目签名，CI/本地一致 */
+    signingConfigs {
+        project {
+            storeFile file("${rootDir}/signing/icarlyrics.keystore")
+            storePassword 'icarlyrics'
+            keyAlias 'icarlyrics'
+            keyPassword 'icarlyrics'
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.project
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.project
         }
     }
 
