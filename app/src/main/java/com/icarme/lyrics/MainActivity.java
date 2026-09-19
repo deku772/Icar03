@@ -266,6 +266,7 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         navItems.addView(spacer, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        addNavItem(LyricsSettingsRenderer.SettingsPages.TIP, "赞赏");
         addNavItem(LyricsSettingsRenderer.SettingsPages.ABOUT, "关于");
         return nav;
     }

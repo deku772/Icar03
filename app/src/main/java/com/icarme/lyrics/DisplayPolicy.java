@@ -223,54 +223,65 @@ public final class DisplayPolicy {
             mapInset = Math.max(mapInset, Math.round(140 * sy));
         }
 
-        // 地图/TBT 前台：
-        //  car / auto → 歌词隐身（与原版一致，优先不挡导航）
-        //  always → 用户强制显示时仍给底部安全区，不整屏盖
-        boolean mapLike = SceneDetector.MODE_MAP.equals(sceneMode) || tbtShow == 1;
-        if (mapLike && !MODE_ALWAYS.equals(displayMode)) {
-            Log.i(TAG, "map/tbt → withhold lyrics scene=" + sceneMode
-                    + " tbt=" + tbtShow + " mode=" + displayMode);
-            return new SafeBox(0, 0, w, 0, true, position, mapInset);
-        }
-        if (mapLike) {
-            return bottomCompact(w, h, sy, mapInset, position);
+        boolean sceneMap = SceneDetector.MODE_MAP.equals(sceneMode);
+        boolean tbtMap = (tbtShow == 1);
+        boolean always = MODE_ALWAYS.equals(displayMode);
+        boolean car = MODE_CAR.equals(displayMode);
+
+        /*
+         * 避让语义（修正颠倒）：
+         *  auto  = 仅当前台判定为地图包时隐藏；壁纸/其它一律显示
+         *  car   = 地图包或 TBT 卡显示时隐藏（更贴近原车）
+         *  always= 永不隐藏；地图时也从「状态栏下方」起排，而不是半屏中部
+         */
+        boolean shouldHide;
+        if (always) {
+            shouldHide = false;
+        } else if (car) {
+            shouldHide = sceneMap || tbtMap;
+        } else {
+            shouldHide = sceneMap;
         }
 
-        // 优先：当前左右侧的壁纸安全窗
+        if (shouldHide) {
+            Log.i(TAG, "hide lyrics scene=" + sceneMode + " tbt=" + tbtShow
+                    + " mode=" + displayMode);
+            return new SafeBox(0, 0, w, 0, true, position, mapInset);
+        }
+
+        /* 顶部安全起点：通知栏/状态栏下方（约 y=90/1080），TBT 时再下移 */
+        int top = Math.max(Math.round(REF_TOP * sy), mapInset);
+        int bottom = h - Math.round(24 * sy);
+        int margin = Math.round(REF_MARGIN_X * sx);
+
+        /* always 且在地图/TBT：仍从顶部开始整列显示，禁止落到屏幕中部 */
+        if (always && (sceneMap || tbtMap)) {
+            int bw = Math.round(REF_CARD_W * sx);
+            if (bw > w - 2 * margin) bw = Math.max(MIN_SAFE_W, w - 2 * margin);
+            int x = left ? margin : Math.max(margin, w - bw - margin);
+            int height = bottom - top;
+            if (height < MIN_SAFE_H) height = Math.max(MIN_SAFE_H, Math.round(300 * sy));
+            return new SafeBox(x, top, bw, height, false, position, mapInset);
+        }
+
+        /* 壁纸/常规：侧窗；失败则退回顶部起排的安全窗（不是半屏底） */
         SafeBox box = sideWindow(left, w, h, sx, sy, mapInset, sceneTopPx, position);
         if (box != null) return box;
 
-        // 标准浮窗占用（window_mode 2/3）或侧窗被压扁：
-        // 1) 尝试另一侧（浮窗在右时歌词走左）
-        if (windowMode == 2 || windowMode == 3 || box == null) {
+        if (windowMode == 2 || windowMode == 3) {
             SafeBox other = sideWindow(!left, w, h, sx, sy, mapInset, null, position);
-            if (other != null) {
-                Log.i(TAG, "fallback opposite side box h=" + other.height);
-                return other;
-            }
-            // 2) 底部紧凑条（地图场景常用，壁纸浮窗占用时也可见）
-            SafeBox bottom = bottomCompact(w, h, sy, mapInset, position);
-            if (!bottom.withhold && bottom.height >= MIN_SAFE_H) {
-                Log.i(TAG, "fallback bottom compact h=" + bottom.height
-                        + " window=" + windowMode);
-                return bottom;
-            }
-            // 3) 极窄顶栏也比完全不显示强
-            int topBarH = Math.max(MIN_SAFE_H, Math.round(REF_TOP * sy) - Math.round(8 * sy));
-            int topBarY = Math.max(0, mapInset > 0 ? mapInset : Math.round(16 * sy));
-            if (topBarH >= MIN_SAFE_H / 2) {
-                Log.i(TAG, "fallback top bar h=" + topBarH);
-                return new SafeBox(Math.round(REF_MARGIN_X * sx), topBarY,
-                        w - 2 * Math.round(REF_MARGIN_X * sx), topBarH,
-                        false, position, mapInset);
-            }
+            if (other != null) return other;
         }
 
-        Log.i(TAG, "withhold mapInset=" + mapInset + " window=" + windowMode
-                + " sceneTop=" + sceneTopPx + " pos=" + position);
         int cardW = Math.round(REF_CARD_W * sx);
-        int margin = Math.round(REF_MARGIN_X * sx);
-        int x = left ? margin : Math.max(0, w - cardW - margin);
-        return new SafeBox(x, Math.round(REF_TOP * sy), cardW, 0, true, position, mapInset);
+        if (cardW > w - 2 * margin) cardW = Math.max(MIN_SAFE_W, w - 2 * margin);
+        int x = left ? margin : Math.max(margin, w - cardW - margin);
+        int height = bottom - top;
+        if (cardW >= MIN_SAFE_W && height >= MIN_SAFE_H) {
+            return new SafeBox(x, top, cardW, height, false, position, mapInset);
+        }
+        /* 最后保底：顶部一条，避免整层消失 */
+        return new SafeBox(margin, top, w - 2 * margin,
+                Math.max(MIN_SAFE_H, Math.round(160 * sy)), false, position, mapInset);
     }
 }

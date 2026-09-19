@@ -29,6 +29,7 @@ public final class SceneDetector {
             "com.autonavi.amapauto",
             "com.autonavi.amapautojni",
             "com.baidu.BaiduMap",
+            "com.baidu.BaiduMap",
             "com.baidu.baidumap",
             "com.tencent.map",
             "com.amap.android",
@@ -37,7 +38,8 @@ public final class SceneDetector {
             "com.here.app.maps",
             "com.sygic.truck",
             "com.sygic.aura",
-            "com.tomtom.gplay.navapp"
+            "com.tomtom.gplay.navapp",
+            "com.autonavi.amapautopro"
     ));
 
     private String lastPkg = "";
@@ -60,10 +62,13 @@ public final class SceneDetector {
     private static String classify(String pkg) {
         if (pkg == null || pkg.isEmpty()) return MODE_WALLPAPER;
         String p = pkg.toLowerCase();
+        /* 桌面/设置不当地图，避免误隐藏壁纸歌词 */
+        if (p.contains("launcher") || p.contains("mengbo")) return MODE_WALLPAPER;
         if (p.contains("settings") || p.contains("tether")) return MODE_SETTINGS;
         if (MAP_PKGS.contains(pkg)) return MODE_MAP;
-        if (p.contains("map") || p.contains("navi") || p.contains("amap")
-                || p.contains("autonavi") || p.contains("baidumap")) return MODE_MAP;
+        if (p.contains("navi") || p.contains("amap") || p.contains("autonavi")
+                || p.contains("baidumap") || p.endsWith(".map")
+                || p.contains("gaode") || p.contains("tencent.map")) return MODE_MAP;
         return MODE_WALLPAPER;
     }
 

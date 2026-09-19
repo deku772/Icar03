@@ -70,8 +70,9 @@ public class PhoneMainActivity extends Activity {
         root.addView(buildHeader());
         root.addView(buildStatusCard());
         root.addView(buildButtons());
-        root.addView(buildTipCard());
         root.addView(buildLrcCard());
+        root.addView(buildAdbLogCard());
+        root.addView(buildTipCard());
         setContentView(scroll);
 
         /* 打开 App 默认拉起推送服务（手动停止过则不自启） */
@@ -195,42 +196,43 @@ public class PhoneMainActivity extends Activity {
         btnPerms.setOnClickListener(v -> requestPermissions());
         box.addView(btnPerms);
 
-        /* 2 ADB 一键安装车机端（GitHub 下载 → 推送安装） */
+        /* 2 一键安装并授权车机（合并原安装+授权） */
         btnCarInstall = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnCarInstall.setText("2 · 一键安装车机端（ADB）");
+        btnCarInstall.setText("2 · 一键安装并授权（ADB）");
         styleButton(btnCarInstall, R.drawable.btn_primary, 0xFFFFFFFF);
         btnCarInstall.setOnClickListener(v -> startCarAdbInstall());
         box.addView(btnCarInstall);
+        btnCarAdb = btnCarInstall; /* 兼容旧字段引用 */
 
-        /* 3 ADB 一键授权车机 */
-        btnCarAdb = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnCarAdb.setText("3 · 一键授权车机（ADB）");
-        styleButton(btnCarAdb, R.drawable.btn_primary, 0xFFFFFFFF);
-        btnCarAdb.setOnClickListener(v -> startCarAdbSetup());
-        box.addView(btnCarAdb);
-
-        /* 4 启停推送 */
+        /* 3 启停推送 */
         btnService = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnService.setText("4 · 启动推送服务");
+        btnService.setText("3 · 启动推送服务");
         styleButton(btnService, R.drawable.btn_primary, 0xFFFFFFFF);
         btnService.setOnClickListener(v -> toggleService());
         box.addView(btnService);
 
-        /* 5 检查更新：与 1–4 同为蓝底主按钮 */
+        /* 4 检查更新 */
         Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnUpd.setText("5 · 检查更新（GitHub）");
+        btnUpd.setText("4 · 检查更新（GitHub）");
         styleButton(btnUpd, R.drawable.btn_primary, 0xFFFFFFFF);
         btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
                 BuildConfig.VERSION_NAME, false));
         box.addView(btnUpd);
 
+        /* 微信账号：放在检查更新下面 */
+        TextView wx = new TextView(this);
+        wx.setText("微信账号 / 赞赏：见本页底部「微信赞赏」");
+        wx.setTextColor(C_TEXT_DIM);
+        wx.setTextSize(12);
+        wx.setPadding(dp(8), dp(6), dp(8), dp(2));
+        box.addView(wx);
+
         TextView tip = new TextView(this);
-        tip.setText("ADB：手机开热点 → 车机连上 → 再点 2/3\n"
-                + "也可在下面填车机 IP 直连（如 10.235.172.177）");
+        tip.setText("ADB：手机开热点 → 车机连上 → 点「一键安装并授权」\n"
+                + "也可填车机 IP 直连（如 10.235.172.177）");
         tip.setTextColor(C_TEXT_DIM);
         tip.setTextSize(11);
         tip.setPadding(dp(8), dp(4), dp(8), 0);
@@ -251,13 +253,30 @@ public class PhoneMainActivity extends Activity {
         etCarIp.setBackground(bg);
         box.addView(etCarIp, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(44)));
+        return box;
+    }
 
+    /** 安装日志卡片：放在歌词区之后 */
+    private View buildAdbLogCard() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackgroundResource(R.drawable.card_bg);
+        box.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(12);
+        box.setLayoutParams(lp);
+        TextView cap = new TextView(this);
+        cap.setText("一键安装日志");
+        cap.setTextColor(C_TEXT);
+        cap.setTextSize(14);
+        box.addView(cap);
         tvCarAdbLog = new TextView(this);
         tvCarAdbLog.setTextColor(C_TEXT_DIM);
         tvCarAdbLog.setTextSize(12);
         tvCarAdbLog.setLineSpacing(dp(2), 1f);
-        tvCarAdbLog.setPadding(dp(8), dp(4), dp(8), 0);
-        tvCarAdbLog.setVisibility(View.GONE);
+        tvCarAdbLog.setPadding(0, dp(6), 0, 0);
+        tvCarAdbLog.setText("尚未安装/授权");
         box.addView(tvCarAdbLog);
         return box;
     }
@@ -267,7 +286,7 @@ public class PhoneMainActivity extends Activity {
         ui.post(() -> {
             String s = log.toString();
             if (s.length() > 1600) s = "…" + s.substring(s.length() - 1600);
-            tvCarAdbLog.setText(s);
+            if (tvCarAdbLog != null) tvCarAdbLog.setText(s);
         });
     }
 
@@ -279,14 +298,13 @@ public class PhoneMainActivity extends Activity {
         runAdbFlow(true);
     }
 
-    /** install=true 走下载+安装+授权；false 仅授权 */
+    /** install=true 走下载+安装+授权；界面已合并为「一键安装并授权」 */
     private void runAdbFlow(boolean install) {
         if (carAdbRunning) return;
         carAdbRunning = true;
         String manual = etCarIp.getText() == null ? "" : etCarIp.getText().toString().trim();
-        Button btn = install ? btnCarInstall : btnCarAdb;
-        String idle = install ? "2 · 一键安装车机端（ADB）" : "3 · 一键授权车机（ADB）";
-        btn.setText(install ? "2 · 安装中…" : "3 · 授权中…");
+        Button btn = btnCarInstall;
+        btn.setText("2 · 安装并授权中…");
         tvCarAdbLog.setVisibility(View.VISIBLE);
         tvCarAdbLog.setText(manual.isEmpty() ? "请保持手机热点开启、车机已连接…\n" : "直连 " + manual + "…\n");
         final StringBuilder log = new StringBuilder();
@@ -295,9 +313,9 @@ public class PhoneMainActivity extends Activity {
             @Override public void onDone(boolean ok, String summary) {
                 ui.post(() -> {
                     carAdbRunning = false;
-                    btn.setText(idle);
+                    btn.setText("2 · 一键安装并授权（ADB）");
                     log.append(ok ? "[完成] " : "[失败] ").append(summary).append('\n');
-                    tvCarAdbLog.setText(log.toString());
+                    if (tvCarAdbLog != null) tvCarAdbLog.setText(log.toString());
                     android.widget.Toast.makeText(PhoneMainActivity.this, summary,
                             android.widget.Toast.LENGTH_LONG).show();
                 });

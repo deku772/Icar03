@@ -49,10 +49,23 @@ public final class LyricsSettingsRenderer {
             renderLyrics(c, box);
         } else if (SettingsPages.SERVICE.equals(category)) {
             renderService(c, box);
+        } else if (SettingsPages.TIP.equals(category)) {
+            renderTipOnly(c, box);
         } else if (SettingsPages.ABOUT.equals(category)) {
             renderAbout(c, box);
         }
         return box;
+    }
+
+    private void renderTipOnly(Context c, LinearLayout box) {
+        box.addView(UiKit.groupTitle(c, "微信赞赏"));
+        TextView tip = UiKit.caption2(c, "若项目对你有帮助，可微信扫码支持开发。");
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tlp.bottomMargin = UiKit.px(c, R.dimen.icar_group_title_gap);
+        tip.setLayoutParams(tlp);
+        box.addView(tip);
+        appendQrPair(c, box);
     }
 
     private void renderLyrics(Context c, LinearLayout box) {
@@ -283,14 +296,22 @@ public final class LyricsSettingsRenderer {
             box.addView(helpWrap);
         }
 
-        box.addView(UiKit.groupTitle(c, "下载与支持"));
-        TextView tip = UiKit.caption2(c, "左侧为手机端下载码，右侧为赞赏码。");
+        box.addView(UiKit.groupTitle(c, "下载手机端"));
+        TextView tip = UiKit.caption2(c, "扫码下载手机端 APK；赞赏请见左栏「赞赏」页。");
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         tlp.bottomMargin = UiKit.px(c, R.dimen.icar_group_title_gap);
         tip.setLayoutParams(tlp);
         box.addView(tip);
+        appendQrPair(c, box, false);
+    }
 
+    /** 双列二维码：includeTip=true 时右侧为赞赏 */
+    private void appendQrPair(Context c, LinearLayout box) {
+        appendQrPair(c, box, true);
+    }
+
+    private void appendQrPair(Context c, LinearLayout box, boolean includeTip) {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         int qs = UiKit.px(c, R.dimen.icar_qr_size);
@@ -302,19 +323,20 @@ public final class LyricsSettingsRenderer {
                     "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Phone.apk", 4));
         } catch (Exception ignored) {}
         dlCol.addView(dl, new LinearLayout.LayoutParams(qs, qs));
-        TextView dlLab = UiKit.caption2(c, "下载手机端");
-        dlCol.addView(dlLab);
+        dlCol.addView(UiKit.caption2(c, "下载手机端"));
         row.addView(dlCol, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        LinearLayout tipCol = new LinearLayout(c);
-        tipCol.setOrientation(LinearLayout.VERTICAL);
-        android.widget.ImageView tipIv = new android.widget.ImageView(c);
-        tipIv.setImageResource(R.drawable.wechat_qr);
-        tipCol.addView(tipIv, new LinearLayout.LayoutParams(qs, qs));
-        tipCol.addView(UiKit.caption2(c, "赞赏 · Mysa"));
-        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        tipLp.leftMargin = UiKit.px(c, R.dimen.icar_switch_card_gap);
-        row.addView(tipCol, tipLp);
+        if (includeTip) {
+            LinearLayout tipCol = new LinearLayout(c);
+            tipCol.setOrientation(LinearLayout.VERTICAL);
+            android.widget.ImageView tipIv = new android.widget.ImageView(c);
+            tipIv.setImageResource(R.drawable.wechat_qr);
+            tipCol.addView(tipIv, new LinearLayout.LayoutParams(qs, qs));
+            tipCol.addView(UiKit.caption2(c, "微信赞赏"));
+            LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            tipLp.leftMargin = UiKit.px(c, R.dimen.icar_switch_card_gap);
+            row.addView(tipCol, tipLp);
+        }
         box.addView(row);
     }
 
@@ -322,6 +344,7 @@ public final class LyricsSettingsRenderer {
     public static final class SettingsPages {
         public static final String LYRICS = "lyrics";
         public static final String SERVICE = "service";
+        public static final String TIP = "tip";
         public static final String ABOUT = "about";
         private SettingsPages() {}
     }
