@@ -114,8 +114,9 @@ public final class LyricsSettingsRenderer {
 
         String align = OverlayService.getAlign();
         int alignIdx = "left".equals(align) ? 0 : "right".equals(align) ? 2 : 1;
-        box.addView(UiKit.groupTitle(c, "歌词对齐"));
-        box.addView(UiKit.segmented(c, new String[]{"居中左", "居中", "居中右"}, alignIdx,
+        box.addView(UiKit.groupTitle(c, "歌词位置（横向）"));
+        box.addView(UiKit.groupDesc(c, "靠左 / 居中 / 靠右；与壁纸左右窗口是不同设置。"));
+        box.addView(UiKit.segmented(c, new String[]{"靠左", "居中", "靠右"}, alignIdx,
                 new UiKit.Action[]{
                         () -> {
                             OverlayService.setAlign("left");

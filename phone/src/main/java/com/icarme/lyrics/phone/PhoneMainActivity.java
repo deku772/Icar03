@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -75,6 +76,7 @@ public class PhoneMainActivity extends Activity {
 
         /* 打开 App 默认拉起推送服务（手动停止过则不自启） */
         autoStartServiceIfAllowed();
+        requestIgnoreBatteryOptimizations();
 
         /* 仅手动检查更新 */
 
@@ -563,6 +565,19 @@ public class PhoneMainActivity extends Activity {
         } catch (Exception e) {
             IcarPhoneApp.saveCrash(Thread.currentThread(), e);
         }
+    }
+
+    /** 降低被系统省电策略杀掉的概率（国产 ROM 尤其需要） */
+    private void requestIgnoreBatteryOptimizations() {
+        try {
+            if (Build.VERSION.SDK_INT < 23) return;
+            android.os.PowerManager pm =
+                    (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            if (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+            Intent i = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            i.setData(android.net.Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+        } catch (Throwable ignored) {}
     }
 
     private void setDot(int row, int color) {

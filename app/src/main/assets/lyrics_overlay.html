@@ -81,16 +81,10 @@
   .line.near .trans{color:var(--focus);opacity:.75;}
   body.paused .line.active .orig{animation:breathe 2.4s ease-in-out infinite;}
   @keyframes breathe{50%{opacity:.55;}}
-  /* 地图模式：歌词收到屏幕底部、更小更透，不挡路线 */
-  body.mode-map #lyrics{padding-bottom:8%;}
-  body.mode-map .line{height:calc(var(--line-h) * 0.72);line-height:calc(var(--line-h) * 0.72);}
-  body.mode-map{--fs:22px;--fs-active:30px;--fs-near:30px;--fs-trans:14px;--line-h:44px;}
-  body.mode-map .line .orig{opacity:.92;}
-  body.mode-map .line.active .orig{text-shadow:0 1px 8px rgba(0,0,0,.85);}
-  /* 居中左：文字仍居中，整块偏左（右侧留更多空） */
-  #lyrics.align-left{padding-left:6%;padding-right:22%;text-align:center;}
-  /* 居中右：对称 */
-  #lyrics.align-right{padding-right:6%;padding-left:22%;text-align:center;}
+  /* 地图模式样式保留，但原生 withhold 时整层已 display:none */
+  /* 靠左/靠右：整块贴边；文字默认左/右对齐，避免“居中左却最靠左”的歧义 */
+  #lyrics.align-left{padding-left:4%;padding-right:12%;text-align:left;}
+  #lyrics.align-right{padding-right:4%;padding-left:12%;text-align:right;}
   /* 系统设置页：歌词大幅让开，避免挡住热点/授权界面 */
   body.mode-settings #stage{opacity:.12;pointer-events:none;}
   body.mode-settings #hint{opacity:0;}

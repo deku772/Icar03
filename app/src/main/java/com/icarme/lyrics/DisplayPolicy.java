@@ -199,9 +199,10 @@ public final class DisplayPolicy {
             mapInset = Math.max(mapInset, Math.round(140 * sy));
         }
 
-        // 地图前台：底部紧凑
+        // 地图前台：与原版一致——歌词隐身，不压导航画面
         if (SceneDetector.MODE_MAP.equals(sceneMode)) {
-            return bottomCompact(w, h, sy, mapInset, position);
+            Log.i(TAG, "map foreground → withhold lyrics");
+            return new SafeBox(0, 0, w, 0, true, position, mapInset);
         }
 
         // 优先：当前左右侧的壁纸安全窗

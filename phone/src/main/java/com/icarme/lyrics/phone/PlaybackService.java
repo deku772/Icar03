@@ -48,7 +48,7 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     /** 连续未播放超过此时长 → 停 BLE 广播并断开车机；恢复播放立即重开广播 */
     private static final long IDLE_PAUSE_MS = 12000;
     private static final long IDLE_CHECK_MS = 3000;
-    /** 车机 BLE 连续未连接超过此时长 → 整服务退出，避免空耗电 */
+    /** 车机 BLE 未连接时长：仅提示，不 stopSelf（避免必须手动重开 App） */
     private static final long BLE_GIVEUP_MS = 5 * 60 * 1000L;
 
     public static volatile boolean running = false;
@@ -141,6 +141,12 @@ public class PlaybackService extends Service implements NotificationListener.Cal
 
     @Override
     public IBinder onBind(Intent intent) { return null; }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        /* 被系统杀掉后尽量自动拉起，避免用户必须手动打开 App */
+        return Service.START_STICKY;
+    }
 
     @Override
     public void onCreate() {
@@ -409,11 +415,15 @@ public class PlaybackService extends Service implements NotificationListener.Cal
             lastBleConnectedTs = System.currentTimeMillis();
             bleEverConnected = true;
         }
-        /* 车机 5 分钟未连：整服务退出（不改 auto_start，再打开 App 即重启） */
+        /* 车机长时间未连：保持前台服务，周期性重启广播，等待车机回来 */
         if (System.currentTimeMillis() - lastBleConnectedTs >= BLE_GIVEUP_MS) {
-            updateNotification("车机 5 分钟未连接，已自动停止省电");
-            stopSelf();
-            return;
+            try {
+                if (ble != null && !ble.isConnected()) {
+                    ble.resumeFromIdle();
+                    updateNotification("等待车机连接…（服务保持运行，可放歌或打开车机端）");
+                }
+            } catch (Throwable ignored) {}
+            lastBleConnectedTs = System.currentTimeMillis() - BLE_GIVEUP_MS / 2;
         }
         boolean playing = lastPlaying;
         if (playing) {
