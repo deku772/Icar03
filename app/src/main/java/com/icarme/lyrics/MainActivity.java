@@ -59,6 +59,7 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
     private String page = LyricsSettingsRenderer.SettingsPages.LYRICS;
 
     private FrameLayout root;
+    private FrameLayout panel;
     private FrameLayout dialogHost;
     private LinearLayout leftNav;
     private FrameLayout contentHost;
@@ -143,44 +144,45 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         showPage(page);
     }
 
-    /** 规范 §3：标准右侧浮窗几何；避免整屏盖住原车界面。 */
+    /**
+     * 窗口策略：Activity 始终全屏透明；设置内容只画在「标准右侧浮窗」面板里。
+     * 这样既不会用深色底盖住原车界面，也不会被启动器 freeform 裁成一小条。
+     */
     private void applyStandardWindow() {
         DisplayMetricsHolder dmh = DisplayMetricsHolder.of(this);
-        if (!dmh.carLike) return;
         Window w = getWindow();
         w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        w.setWindowAnimations(R.style.IcarWindowAnim);
         WindowManager.LayoutParams lp = w.getAttributes();
         lp.gravity = Gravity.TOP | Gravity.START;
-        lp.x = dmh.x;
-        lp.y = dmh.y;
-        lp.width = dmh.w;
-        lp.height = dmh.h;
-        lp.alpha = 1f;
+        lp.x = 0;
+        lp.y = 0;
+        lp.width = WindowManager.LayoutParams.MATCH_PARENT;
+        lp.height = WindowManager.LayoutParams.MATCH_PARENT;
         w.setAttributes(lp);
-        w.setLayout(dmh.w, dmh.h);
-        w.setWindowAnimations(R.style.IcarWindowAnim);
-        // 启动器 freeform/fullscreen 会在稍后改写 bounds，多次重申目标几何
+        w.setLayout(WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT);
+        if (panel != null) {
+            FrameLayout.LayoutParams plp = (FrameLayout.LayoutParams) panel.getLayoutParams();
+            if (plp == null) {
+                plp = new FrameLayout.LayoutParams(dmh.w, dmh.h);
+            }
+            plp.gravity = Gravity.TOP | Gravity.START;
+            plp.leftMargin = dmh.carLike ? dmh.x : 0;
+            plp.topMargin = dmh.carLike ? dmh.y : 0;
+            plp.width = dmh.carLike ? dmh.w : ViewGroup.LayoutParams.MATCH_PARENT;
+            plp.height = dmh.carLike ? dmh.h : ViewGroup.LayoutParams.MATCH_PARENT;
+            panel.setLayoutParams(plp);
+        }
         ui.removeCallbacks(applyWindowRetry);
-        ui.postDelayed(applyWindowRetry, 80);
-        ui.postDelayed(applyWindowRetry, 320);
-        ui.postDelayed(applyWindowRetry, 900);
+        ui.postDelayed(applyWindowRetry, 120);
+        ui.postDelayed(applyWindowRetry, 400);
     }
 
     private final Runnable applyWindowRetry = new Runnable() {
         @Override public void run() {
             if (isFinishing()) return;
-            DisplayMetricsHolder dmh = DisplayMetricsHolder.of(MainActivity.this);
-            if (!dmh.carLike) return;
-            try {
-                WindowManager.LayoutParams lp = getWindow().getAttributes();
-                lp.gravity = Gravity.TOP | Gravity.START;
-                lp.x = dmh.x;
-                lp.y = dmh.y;
-                lp.width = dmh.w;
-                lp.height = dmh.h;
-                getWindow().setAttributes(lp);
-                getWindow().setLayout(dmh.w, dmh.h);
-            } catch (Throwable ignored) {}
+            applyStandardWindow();
         }
     };
 
@@ -190,12 +192,25 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
 
         static DisplayMetricsHolder of(Context c) {
             DisplayMetricsHolder o = new DisplayMetricsHolder();
-            android.util.DisplayMetrics dm = c.getResources().getDisplayMetrics();
-            o.carLike = dm.widthPixels >= 1800 || Math.abs(dm.densityDpi - 141) <= 12;
-            o.x = c.getResources().getDimensionPixelSize(R.dimen.icar_std_window_x);
-            o.y = c.getResources().getDimensionPixelSize(R.dimen.icar_std_window_y);
-            o.w = c.getResources().getDimensionPixelSize(R.dimen.icar_std_window_width);
-            o.h = c.getResources().getDimensionPixelSize(R.dimen.icar_std_window_height);
+            android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+            try {
+                android.view.WindowManager wm =
+                        (android.view.WindowManager) c.getSystemService(Context.WINDOW_SERVICE);
+                if (wm != null) wm.getDefaultDisplay().getRealMetrics(dm);
+            } catch (Throwable ignored) {
+                dm = c.getResources().getDisplayMetrics();
+            }
+            if (dm.widthPixels <= 0) dm = c.getResources().getDisplayMetrics();
+            o.carLike = dm.widthPixels >= 1600;
+            /* 1920x1080 标度：标准浮窗 1230x810 @(660,90) */
+            o.x = Math.round(660 * (dm.widthPixels / 1920f));
+            o.y = Math.round(90 * (dm.heightPixels / 1080f));
+            o.w = Math.round(1230 * (dm.widthPixels / 1920f));
+            o.h = Math.round(810 * (dm.heightPixels / 1080f));
+            if (o.w < 700) o.w = Math.max(700, dm.widthPixels - 40);
+            if (o.h < 480) o.h = Math.max(480, dm.heightPixels - 40);
+            if (o.x + o.w > dm.widthPixels) o.x = Math.max(0, dm.widthPixels - o.w);
+            if (o.y + o.h > dm.heightPixels) o.y = Math.max(0, dm.heightPixels - o.h);
             return o;
         }
     }
@@ -204,26 +219,33 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.TRANSPARENT);
 
+        panel = new FrameLayout(this);
+        panel.setBackgroundColor(Color.TRANSPARENT);
+
         LinearLayout split = new LinearLayout(this);
         split.setOrientation(LinearLayout.HORIZONTAL);
 
         leftNav = buildLeftNav();
         split.addView(leftNav, new LinearLayout.LayoutParams(
                 getResources().getDimensionPixelSize(R.dimen.icar_nav_width),
-                ViewGroup.LayoutParams.MATCH_PARENT));
+                LinearLayout.LayoutParams.MATCH_PARENT));
 
         contentHost = new FrameLayout(this);
         contentHost.setBackgroundResource(R.drawable.icar_bg_right);
         split.addView(contentHost, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
 
-        root.addView(split, new FrameLayout.LayoutParams(
+        panel.addView(split, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(panel, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         dialogHost = new FrameLayout(this);
         dialogHost.setVisibility(View.GONE);
         root.addView(dialogHost, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
+        applyStandardWindow();
     }
 
     private LinearLayout buildLeftNav() {
