@@ -7,6 +7,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
+import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
@@ -227,6 +228,99 @@ public class OverlayService extends Service {
         return "已授权 · 暂未探测到场景层节点";
     }
 
+    /** 歌词来源：bluetooth=手机BLE推送；online=车机联网在线取词 */
+    private static final String KEY_LYRICS_SOURCE = "lyrics_source_mode";
+    public static final String SRC_BLUETOOTH = "bluetooth";
+    public static final String SRC_ONLINE = "online";
+
+    private final CarLyricsFetcher carFetcher = new CarLyricsFetcher();
+    private volatile String onlineTrackKey = "";
+    private volatile int onlineFetchSeq = 0;
+    private volatile long onlineDurationMs = 0;
+
+    public static String getLyricsSourceMode() {
+        return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_LYRICS_SOURCE, SRC_BLUETOOTH);
+    }
+
+    public static void setLyricsSourceMode(String mode) {
+        if (!SRC_BLUETOOTH.equals(mode) && !SRC_ONLINE.equals(mode)) return;
+        IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_LYRICS_SOURCE, mode).apply();
+        OverlayService svc = instance;
+        if (svc != null) {
+            svc.onlineTrackKey = "";
+            svc.ui.post(svc::pushSafeArea);
+        }
+    }
+
+    public static String lyricsSourceStatus() {
+        String m = getLyricsSourceMode();
+        if (SRC_ONLINE.equals(m)) {
+            OverlayService svc = instance;
+            String err = svc != null ? svc.carFetcher.lastError : "";
+            return "在线取词" + (err != null && !err.isEmpty() ? (" · " + err) : " · 车机需联网");
+        }
+        return "蓝牙推送（手机取词）";
+    }
+
+    /** 在线模式：用车机蓝牙栈 MediaSession 曲目信息联网取词 */
+    private void maybeFetchOnlineLyrics(MediaController c) {
+        if (!SRC_ONLINE.equals(getLyricsSourceMode())) return;
+        try {
+            MediaMetadata md = c.getMetadata();
+            if (md == null) return;
+            String track = md.getString(MediaMetadata.METADATA_KEY_TITLE);
+            String artist = md.getString(MediaMetadata.METADATA_KEY_ARTIST);
+            long dur = md.getLong(MediaMetadata.METADATA_KEY_DURATION);
+            if (track == null || track.trim().isEmpty()) return;
+            String key = track.trim() + "|" + (artist == null ? "" : artist.trim());
+            if (key.equals(onlineTrackKey)) return;
+            onlineTrackKey = key;
+            onlineDurationMs = dur > 0 ? dur : 0;
+            final int seq = ++onlineFetchSeq;
+            final String t = track.trim();
+            final String a = artist == null ? "" : artist.trim();
+            final long d = onlineDurationMs;
+            new Thread(() -> {
+                try {
+                    org.json.JSONObject clear = new org.json.JSONObject();
+                    clear.put("type", "cmd");
+                    clear.put("action", "clear");
+                    push(clear.toString());
+                } catch (Exception ignored) {}
+                CarLyricsFetcher.Result r = carFetcher.fetch(t, a, (int) (d / 1000));
+                if (seq != onlineFetchSeq) return;
+                if (r == null) return;
+                try {
+                    org.json.JSONObject msg = new org.json.JSONObject();
+                    msg.put("type", "lyrics");
+                    msg.put("track", t);
+                    msg.put("artist", a);
+                    msg.put("durationMs", d);
+                    msg.put("lrc", r.lrc);
+                    if (r.tlyric != null) msg.put("tlyric", r.tlyric);
+                    msg.put("source", "online/" + r.source);
+                    msg.put("resetProgress", true);
+                    push(msg.toString());
+                } catch (Exception ignored) {}
+            }, "car-online-lyrics").start();
+        } catch (Throwable ignored) {}
+    }
+
+    private void pushOnlineProgress() {
+        if (!SRC_ONLINE.equals(getLyricsSourceMode())) return;
+        if (!localReady) return;
+        try {
+            org.json.JSONObject p = new org.json.JSONObject();
+            p.put("type", "progress");
+            p.put("positionMs", localNow());
+            p.put("playing", localPlaying);
+            if (onlineDurationMs > 0) p.put("durationMs", onlineDurationMs);
+            push(p.toString());
+        } catch (Exception ignored) {}
+    }
+
     public static boolean isDebug() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_DEBUG, false);
@@ -378,6 +472,8 @@ public class OverlayService extends Service {
                 localSyncAt = now;
                 localPlaying = true;
                 localReady = true;
+                maybeFetchOnlineLyrics(c);
+                pushOnlineProgress();
                 return;   /* 取第一个蓝牙栈会话即可 */
             }
         } catch (Exception e) {

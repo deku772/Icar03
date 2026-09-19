@@ -96,6 +96,22 @@ public final class LyricsSettingsRenderer {
                 }
         }));
 
+        box.addView(UiKit.groupTitle(c, "歌词来源"));
+        box.addView(UiKit.groupDesc(c, "蓝牙推送：手机取词后 BLE 推到车机（零车机流量）。在线获取：车机自己联网取词（需车机有流量/Wi‑Fi）。"));
+        String src = OverlayService.getLyricsSourceMode();
+        int srcIdx = "online".equals(src) ? 1 : 0;
+        box.addView(UiKit.segmented(c, new String[]{"蓝牙推送", "在线获取"}, srcIdx,
+                new UiKit.Action[]{
+                        () -> {
+                            OverlayService.setLyricsSourceMode("bluetooth");
+                            host.refreshChrome();
+                        },
+                        () -> {
+                            OverlayService.setLyricsSourceMode("online");
+                            host.refreshChrome();
+                        }
+                }));
+
         box.addView(UiKit.groupTitle(c, "显示模式"));
         box.addView(UiKit.groupDesc(c, "自动：地图/TBT 时隐身避让；始终显示：不因地图隐藏；原车规则：贴近 03 歌词避让。"));
         String dm = OverlayService.getDisplayMode();
@@ -195,6 +211,7 @@ public final class LyricsSettingsRenderer {
         box.addView(UiKit.infoRow(c, "悬浮窗权限", overlayPerm ? "已授予" : "未授予（见「关于」ADB 帮助）"));
         box.addView(UiKit.infoRow(c, "悬浮歌词服务", svc ? "运行中" : "已停止"));
         box.addView(UiKit.infoRow(c, "BLE 接收", ble ? "运行中" : "已停止"));
+        box.addView(UiKit.infoRow(c, "歌词来源", OverlayService.lyricsSourceStatus()));
         box.addView(UiKit.infoRow(c, "连接状态", conn == null || conn.isEmpty() ? "未启动" : conn));
         box.addView(UiKit.infoRow(c, "手机地址", phone));
 
