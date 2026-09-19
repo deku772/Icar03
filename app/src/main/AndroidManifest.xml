@@ -37,13 +37,8 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:resizeableActivity="true"
-            android:configChanges="density|uiMode|orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:configChanges="density|uiMode|orientation|screenSize|smallestScreenSize|screenLayout"
             android:theme="@style/IcarAppTheme">
-            <!-- 规范 §3.2：标准右侧浮窗能力声明 -->
-            <meta-data
-                android:name="com.tcrrry.icar.window.STANDARD_FLOATING_WINDOW"
-                android:value="true" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
