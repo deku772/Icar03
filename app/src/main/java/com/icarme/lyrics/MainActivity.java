@@ -145,8 +145,9 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
     }
 
     /**
-     * 窗口策略：Activity 始终全屏透明；设置内容只画在「标准右侧浮窗」面板里。
-     * 这样既不会用深色底盖住原车界面，也不会被启动器 freeform 裁成一小条。
+     * 窗口策略：Activity 全屏透明；设置面板尽量大。
+     * - 画布够大时：按标准右侧浮窗定位（约 1230x810 @660,90），周围透明不挡系统件
+     * - 画布被 freeform 裁小时：面板铺满整个窗口，避免「只剩一小条」
      */
     private void applyStandardWindow() {
         DisplayMetricsHolder dmh = DisplayMetricsHolder.of(this);
@@ -154,29 +155,56 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         w.setWindowAnimations(R.style.IcarWindowAnim);
         WindowManager.LayoutParams lp = w.getAttributes();
-        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.gravity = Gravity.FILL;
         lp.x = 0;
         lp.y = 0;
         lp.width = WindowManager.LayoutParams.MATCH_PARENT;
         lp.height = WindowManager.LayoutParams.MATCH_PARENT;
+        lp.flags |= WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
         w.setAttributes(lp);
-        w.setLayout(WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT);
+        try {
+            w.setLayout(WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT);
+        } catch (Throwable ignored) {}
         if (panel != null) {
-            FrameLayout.LayoutParams plp = (FrameLayout.LayoutParams) panel.getLayoutParams();
-            if (plp == null) {
-                plp = new FrameLayout.LayoutParams(dmh.w, dmh.h);
-            }
-            plp.gravity = Gravity.TOP | Gravity.START;
-            plp.leftMargin = dmh.carLike ? dmh.x : 0;
-            plp.topMargin = dmh.carLike ? dmh.y : 0;
-            plp.width = dmh.carLike ? dmh.w : ViewGroup.LayoutParams.MATCH_PARENT;
-            plp.height = dmh.carLike ? dmh.h : ViewGroup.LayoutParams.MATCH_PARENT;
-            panel.setLayoutParams(plp);
+            layoutPanel(dmh);
+            panel.post(() -> layoutPanel(DisplayMetricsHolder.of(MainActivity.this)));
         }
         ui.removeCallbacks(applyWindowRetry);
-        ui.postDelayed(applyWindowRetry, 120);
-        ui.postDelayed(applyWindowRetry, 400);
+        ui.postDelayed(applyWindowRetry, 150);
+        ui.postDelayed(applyWindowRetry, 450);
+        ui.postDelayed(applyWindowRetry, 1000);
+    }
+
+    private void layoutPanel(DisplayMetricsHolder dmh) {
+        if (panel == null || root == null) return;
+        int rootW = root.getWidth();
+        int rootH = root.getHeight();
+        FrameLayout.LayoutParams plp = (FrameLayout.LayoutParams) panel.getLayoutParams();
+        if (plp == null) plp = new FrameLayout.LayoutParams(dmh.w, dmh.h);
+
+        boolean smallCanvas = rootW > 0 && rootH > 0
+                && (rootW < dmh.screenW * 0.75f || rootH < dmh.screenH * 0.75f);
+        if (!dmh.carLike || smallCanvas) {
+            /* 启动器给了小窗格：整格铺满设置界面，不要再内缩 */
+            plp.gravity = Gravity.TOP | Gravity.START;
+            plp.leftMargin = 0;
+            plp.topMargin = 0;
+            plp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            plp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+        } else {
+            /* 大画布：标准浮窗面板，保证至少约 2/3 屏，避免观感过小 */
+            int w = Math.max(dmh.w, Math.round(dmh.screenW * 0.64f));
+            int h = Math.max(dmh.h, Math.round(dmh.screenH * 0.70f));
+            int x = Math.min(dmh.x, Math.max(0, dmh.screenW - w - 16));
+            int y = Math.min(dmh.y, Math.max(0, dmh.screenH - h - 16));
+            plp.gravity = Gravity.TOP | Gravity.START;
+            plp.leftMargin = x;
+            plp.topMargin = y;
+            plp.width = w;
+            plp.height = h;
+        }
+        panel.setLayoutParams(plp);
     }
 
     private final Runnable applyWindowRetry = new Runnable() {
@@ -189,6 +217,7 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
     private static final class DisplayMetricsHolder {
         boolean carLike;
         int x, y, w, h;
+        int screenW, screenH;
 
         static DisplayMetricsHolder of(Context c) {
             DisplayMetricsHolder o = new DisplayMetricsHolder();
@@ -198,19 +227,18 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
                         (android.view.WindowManager) c.getSystemService(Context.WINDOW_SERVICE);
                 if (wm != null) wm.getDefaultDisplay().getRealMetrics(dm);
             } catch (Throwable ignored) {
+            }
+            if (dm.widthPixels <= 0 || dm.heightPixels <= 0) {
                 dm = c.getResources().getDisplayMetrics();
             }
-            if (dm.widthPixels <= 0) dm = c.getResources().getDisplayMetrics();
-            o.carLike = dm.widthPixels >= 1600;
-            /* 1920x1080 标度：标准浮窗 1230x810 @(660,90) */
-            o.x = Math.round(660 * (dm.widthPixels / 1920f));
-            o.y = Math.round(90 * (dm.heightPixels / 1080f));
-            o.w = Math.round(1230 * (dm.widthPixels / 1920f));
-            o.h = Math.round(810 * (dm.heightPixels / 1080f));
-            if (o.w < 700) o.w = Math.max(700, dm.widthPixels - 40);
-            if (o.h < 480) o.h = Math.max(480, dm.heightPixels - 40);
-            if (o.x + o.w > dm.widthPixels) o.x = Math.max(0, dm.widthPixels - o.w);
-            if (o.y + o.h > dm.heightPixels) o.y = Math.max(0, dm.heightPixels - o.h);
+            o.screenW = Math.max(dm.widthPixels, 1);
+            o.screenH = Math.max(dm.heightPixels, 1);
+            /* 车机 1920x1080；小屏模拟器按比例 */
+            o.carLike = o.screenW >= 1400;
+            o.x = Math.round(660 * (o.screenW / 1920f));
+            o.y = Math.round(90 * (o.screenH / 1080f));
+            o.w = Math.round(1230 * (o.screenW / 1920f));
+            o.h = Math.round(810 * (o.screenH / 1080f));
             return o;
         }
     }
