@@ -93,7 +93,10 @@ public class IcarA11yService extends AccessibilityService {
                         if (n != null) {
                             Rect r = new Rect();
                             n.getBoundsInScreen(r);
-                            sceneTop = clamp(r.top, 0, dm.heightPixels);
+                            // 近全屏容器不当组件层顶边，避免把歌词安全区压没
+                            if (r.height() <= dm.heightPixels * 0.85f && r.top > 0) {
+                                sceneTop = clamp(r.top, 0, dm.heightPixels);
+                            }
                             n.recycle();
                         }
                     }

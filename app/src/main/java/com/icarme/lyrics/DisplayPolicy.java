@@ -11,13 +11,7 @@ import android.util.Log;
 
 /**
  * 车机歌词安全区策略（自有实现）。
- *
- * 行业共性：壁纸/地图歌词必须避让系统组件（导航卡、Dock、场景提示层），
- * 厂家与第三方最终都会收敛到「读公开状态 → 算安全矩形 → 缩短或隐藏」。
- *
- * 本类只读系统公开键与自身偏好，不写回、不连私有服务：
- *   setting_tbt_show / setting_tbt_guide_status —— 地图导航卡与引导态
- * 1080p 参考：引导中 top 预留 178px，其它非 0 引导态 322px（按高度缩放）。
+ * 目标：避让系统组件时优先「缩小安全区」，而不是把歌词整层藏没。
  */
 public final class DisplayPolicy {
 
@@ -29,18 +23,17 @@ public final class DisplayPolicy {
             "com.mengbo.launcher3.settings.secure.window_mode";
     public static final String KEY_AC_PAGE = "global_setting_ac_page_status";
 
-    /** 1080p 物理 px 参考值 */
     private static final int MAP_INSET_GUIDE_ACTIVE = 178;
     private static final int MAP_INSET_GUIDE_OTHER = 322;
-    /** 标准浮窗卡片在 1920x1080 上的参考几何 */
     private static final int REF_W = 1920;
     private static final int REF_H = 1080;
     private static final int REF_CARD_W = 1230;
     private static final int REF_MARGIN_X = 30;
     private static final int REF_TOP = 90;
     private static final int REF_BOTTOM = 900;
-    private static final int MIN_SAFE_H = 180;
-    private static final int MIN_SAFE_W = 200;
+    /** 高度低于此值才考虑降级/隐藏；尽量保底可见 */
+    private static final int MIN_SAFE_H = 120;
+    private static final int MIN_SAFE_W = 160;
 
     private static volatile int tbtShow = 0;
     private static volatile int tbtGuide = 0;
@@ -101,16 +94,16 @@ public final class DisplayPolicy {
         register(Settings.Secure.getUriFor(KEY_TBT_GUIDE));
         register(Settings.Secure.getUriFor(KEY_WINDOW_MODE));
         register(Settings.Global.getUriFor(KEY_AC_PAGE));
-        // 部分车机写在 Global
         try {
             register(Settings.Global.getUriFor(KEY_TBT_SHOW));
             register(Settings.Global.getUriFor(KEY_TBT_GUIDE));
         } catch (Throwable ignored) {}
-        // 全量刷新一次
         tbtShow = readSecureInt(KEY_TBT_SHOW, 0);
         tbtGuide = readSecureInt(KEY_TBT_GUIDE, 0);
         windowMode = readSecureInt(KEY_WINDOW_MODE, -1);
         acPage = readSecureInt(KEY_AC_PAGE, -1);
+        Log.i(TAG, "attach tbt=" + tbtShow + "/" + tbtGuide
+                + " window=" + windowMode + " ac=" + acPage);
     }
 
     private static void register(android.net.Uri uri) {
@@ -147,7 +140,6 @@ public final class DisplayPolicy {
 
     public static int windowMode() { return windowMode; }
 
-    /** 地图导航卡顶部预留（已按屏高缩放） */
     public static int mapInsetPx(DisplayMetrics dm) {
         if (tbtShow != 1 || tbtGuide == 0) return 0;
         int raw = (tbtGuide == 2) ? MAP_INSET_GUIDE_ACTIVE : MAP_INSET_GUIDE_OTHER;
@@ -155,13 +147,44 @@ public final class DisplayPolicy {
         return Math.round(raw * (h / (float) REF_H));
     }
 
-    /**
-     * 计算壁纸/地图歌词安全矩形。
-     *
-     * @param sceneMode SceneDetector 模式
-     * @param position  wallpaper 歌词位置 left|right
-     * @param sceneTopPx 无障碍探测到的左侧系统组件层顶边（可空；作歌词下边界）
-     */
+    private static SafeBox bottomCompact(int w, int h, float sy, int mapInset,
+                                         String position) {
+        int top = Math.round(h * 0.58f);
+        if (mapInset > 0) top = Math.max(top, Math.min(mapInset, h / 3));
+        int bottom = h - Math.round(16 * sy);
+        int height = bottom - top;
+        if (height < MIN_SAFE_H) {
+            // 再试更靠下的一小条
+            top = h - MIN_SAFE_H - Math.round(16 * sy);
+            height = bottom - top;
+        }
+        if (height < MIN_SAFE_H) {
+            return new SafeBox(0, Math.max(0, bottom - MIN_SAFE_H), w,
+                    Math.max(0, height), false, position, mapInset);
+        }
+        return new SafeBox(0, top, w, height, false, position, mapInset);
+    }
+
+    private static SafeBox sideWindow(boolean left, int w, int h, float sx, float sy,
+                                      int mapInset, Integer sceneTopPx, String position) {
+        int cardW = Math.round(REF_CARD_W * sx);
+        if (cardW > w) cardW = w;
+        int margin = Math.round(REF_MARGIN_X * sx);
+        int x = left ? margin : Math.max(0, w - cardW - margin);
+        int top = Math.max(Math.round(REF_TOP * sy), mapInset);
+        int bottom = Math.min(h, Math.round(REF_BOTTOM * sy));
+        // 仅当 sceneTop 明显位于中下部时，才当作「组件层顶边」压低下边界
+        if (left && sceneTopPx != null && sceneTopPx > h * 0.40f && sceneTopPx < h) {
+            int b = sceneTopPx - Math.round(16 * sy);
+            if (b - top >= MIN_SAFE_H) bottom = Math.min(bottom, b);
+        }
+        int height = bottom - top;
+        if (cardW >= MIN_SAFE_W && height >= MIN_SAFE_H) {
+            return new SafeBox(x, top, cardW, height, false, position, mapInset);
+        }
+        return null;
+    }
+
     public static SafeBox compute(Context ctx, String sceneMode, String position,
                                   Integer sceneTopPx) {
         DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
@@ -170,60 +193,52 @@ public final class DisplayPolicy {
         float sx = w / (float) REF_W;
         float sy = h / (float) REF_H;
         int mapInset = mapInsetPx(dm);
-        boolean left = position != null && position.equals("left");
+        boolean left = "left".equals(position);
 
-        // 空调页：展开时桌面/壁纸歌词让位（保守顶避让）
         if (acPage == 1 || acPage == 3) {
-            mapInset = Math.max(mapInset, Math.round(160 * sy));
+            mapInset = Math.max(mapInset, Math.round(140 * sy));
         }
 
-        // 地图前台：底部紧凑条，避开上半屏路线；TBT 卡通常在顶部，与底部条不冲突
+        // 地图前台：底部紧凑
         if (SceneDetector.MODE_MAP.equals(sceneMode)) {
-            int top = Math.round(h * 0.55f);
-            if (mapInset > 0) {
-                top = Math.max(top, mapInset);
-            }
-            int bottom = h - Math.round(24 * sy);
-            int height = bottom - top;
-            if (height < MIN_SAFE_H) {
-                return new SafeBox(0, top, w, 0, true, position, mapInset);
-            }
-            return new SafeBox(0, top, w, height, false, position, mapInset);
+            return bottomCompact(w, h, sy, mapInset, position);
         }
 
-        // 壁纸：标准右侧浮窗卡片模型；左侧为水平镜像
+        // 优先：当前左右侧的壁纸安全窗
+        SafeBox box = sideWindow(left, w, h, sx, sy, mapInset, sceneTopPx, position);
+        if (box != null) return box;
+
+        // 标准浮窗占用（window_mode 2/3）或侧窗被压扁：
+        // 1) 尝试另一侧（浮窗在右时歌词走左）
+        if (windowMode == 2 || windowMode == 3 || box == null) {
+            SafeBox other = sideWindow(!left, w, h, sx, sy, mapInset, null, position);
+            if (other != null) {
+                Log.i(TAG, "fallback opposite side box h=" + other.height);
+                return other;
+            }
+            // 2) 底部紧凑条（地图场景常用，壁纸浮窗占用时也可见）
+            SafeBox bottom = bottomCompact(w, h, sy, mapInset, position);
+            if (!bottom.withhold && bottom.height >= MIN_SAFE_H) {
+                Log.i(TAG, "fallback bottom compact h=" + bottom.height
+                        + " window=" + windowMode);
+                return bottom;
+            }
+            // 3) 极窄顶栏也比完全不显示强
+            int topBarH = Math.max(MIN_SAFE_H, Math.round(REF_TOP * sy) - Math.round(8 * sy));
+            int topBarY = Math.max(0, mapInset > 0 ? mapInset : Math.round(16 * sy));
+            if (topBarH >= MIN_SAFE_H / 2) {
+                Log.i(TAG, "fallback top bar h=" + topBarH);
+                return new SafeBox(Math.round(REF_MARGIN_X * sx), topBarY,
+                        w - 2 * Math.round(REF_MARGIN_X * sx), topBarH,
+                        false, position, mapInset);
+            }
+        }
+
+        Log.i(TAG, "withhold mapInset=" + mapInset + " window=" + windowMode
+                + " sceneTop=" + sceneTopPx + " pos=" + position);
         int cardW = Math.round(REF_CARD_W * sx);
-        if (cardW > w) cardW = w;
         int margin = Math.round(REF_MARGIN_X * sx);
         int x = left ? margin : Math.max(0, w - cardW - margin);
-
-        // window_mode 2/3：标准浮窗占用桌面歌词区 → 仅顶部安全条
-        if (windowMode == 2 || windowMode == 3) {
-            int top = Math.max(Math.round(24 * sy), mapInset);
-            int bottom = Math.max(top, Math.round(REF_TOP * sy) - Math.round(8 * sy));
-            int height = bottom - top;
-            int fullWidth = w - 2 * margin;
-            if (height < MIN_SAFE_H) {
-                return new SafeBox(margin, top, fullWidth, 0, true, position, mapInset);
-            }
-            return new SafeBox(margin, top, fullWidth, height, false, position, mapInset);
-        }
-
-        int baseTop = Math.round(REF_TOP * sy);
-        int top = Math.max(baseTop, mapInset);
-        int bottom = Math.min(h, Math.round(REF_BOTTOM * sy));
-        // 左侧系统组件层：歌词保持在其上沿之上
-        if (left && sceneTopPx != null && sceneTopPx > 0) {
-            bottom = Math.min(bottom, sceneTopPx - Math.round(16 * sy));
-        }
-        // 左侧 ADAS 卡展开（window_mode=1）且用户选右侧时，保持右侧镜像；选左侧时贴左
-        if (windowMode == 1 && !left) {
-            x = Math.max(0, w - cardW - margin);
-        }
-        int height = bottom - top;
-        if (cardW < MIN_SAFE_W || height < MIN_SAFE_H) {
-            return new SafeBox(x, top, cardW, 0, true, position, mapInset);
-        }
-        return new SafeBox(x, top, cardW, height, false, position, mapInset);
+        return new SafeBox(x, Math.round(REF_TOP * sy), cardW, 0, true, position, mapInset);
     }
 }

@@ -106,24 +106,20 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         }
         ensureLocationPermission(false);
 
-        ui.postDelayed(new Runnable() {
-            @Override public void run() {
-                if (isFinishing()) return;
-                if (LyricsSettingsRenderer.SettingsPages.SERVICE.equals(page)) {
-                    showPage(page);
-                }
-                ui.postDelayed(this, 1500);
-            }
-        }, 1200);
+        // 不做定时整页重建：会导致滚动位置被重置到顶部
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         ThemeAccent.attach(this, this::onAccentChanged);
-        // 梦博启动器 freeform 可能在 onCreate 后改写窗口，回前台时重申标准浮窗几何
         applyStandardWindow();
-        showPage(page);
+        // 回前台只在尚未布局时重建；已打开的页面保留滚动
+        if (contentHost.getChildCount() == 0) {
+            showPage(page);
+        } else {
+            restyleAllNav();
+        }
     }
 
     @Override
@@ -314,7 +310,17 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         }
     }
 
+    private ScrollView currentScroll;
+    private final java.util.HashMap<String, Integer> scrollYByPage = new java.util.HashMap<>();
+
     private void showPage(String id) {
+        showPage(id, false);
+    }
+
+    private void showPage(String id, boolean keepScroll) {
+        if (currentScroll != null && page != null) {
+            scrollYByPage.put(page, currentScroll.getScrollY());
+        }
         page = id;
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_PAGE, id).apply();
         restyleAllNav();
@@ -326,6 +332,14 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         scroll.addView(renderer.renderCategory(id));
         contentHost.addView(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        currentScroll = scroll;
+        final Integer prev = scrollYByPage.get(id);
+        if (prev != null && prev > 0) {
+            final int y = prev;
+            scroll.post(() -> {
+                if (currentScroll == scroll) scroll.scrollTo(0, y);
+            });
+        }
     }
 
     /* ---------------- Host ---------------- */
@@ -334,7 +348,7 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
     @Override public boolean isHelpOpen() { return helpOpen; }
 
     @Override public void refreshChrome() {
-        showPage(page);
+        showPage(page, true);
     }
 
     @Override public void onToggleHelp() {
