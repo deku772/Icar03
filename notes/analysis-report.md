@@ -56,6 +56,13 @@ iCAR 03（奇瑞旗下品牌）车机系统为 Android 9，原厂桌面为 `com.
 | `com.mengbo.provider.wireless_charging_state` | 无线充电状态 | 视觉避让 |
 | `com.mb.provider.usb_sd_mounted` | U盘/SD卡挂载 | 避让 |
 | `com.mb.provider.theme_key` | 系统主题色 | 歌词跟随原厂主题色 |
+| `setting_tbt_show` (Secure) | 地图/TBT 卡是否显示 | 歌词顶部安全区（1.0.19+ 常见） |
+| `setting_tbt_guide_status` (Secure) | 导航引导状态 | guide=2 预留 178px，其它非 0 预留 322px（1080p） |
+
+### 3.3.1 歌词避让方法论（行业共性）
+
+车机歌词最终都会收敛为：读公开状态 → 算安全矩形 → 缩短/移位/隐藏。
+IcarLyrics 自有实现在 `DisplayPolicy` + 可选 `IcarA11yService`（`scene_view` / `adas_handler_view` 只读几何）。
 
 实现方式：`ContentResolver.registerContentObserver()` 监听变化，配合 `MEDIA_MOUNTED` 等系统广播。
 

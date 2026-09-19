@@ -24,9 +24,11 @@
     --fg:#FFFFFF; --near:rgba(255,255,255,.86); --past:rgba(255,255,255,.42);
     --far:rgba(255,255,255,.68); --shadow:0 2px 12px rgba(0,0,0,.72);
     --dim:rgba(255,255,255,.55);
-    --focus:#5BA0FF;           /* 屏幕中央三行强调色（与底色区分） */
+    --focus:#5C66BF;           /* 默认对齐设置页强调色；setColor/setAccent 可覆盖 */
     --focus-near:#7EB6FF;
     --align:center;
+    /* 系统组件避让安全区（原生 setSafeArea 写入） */
+    --safe-l:0px; --safe-t:0px; --safe-r:0px; --safe-b:0px;
   }
   body.theme-light{
     --fg:#171B21; --near:rgba(20,27,35,.88); --past:rgba(20,27,35,.42);
@@ -38,16 +40,23 @@
     font-family:"MiSans","HarmonyOS Sans SC","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
     -webkit-user-select:none;user-select:none;}
   /* 不用 inset 简写（Chrome 87+ 才支持，车机老 WebView 不认会导致舞台零尺寸） */
-  #stage{position:fixed;top:0;left:0;width:100%;height:100%;overflow:hidden;
-    -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);
-    mask-image:linear-gradient(to bottom,transparent 0,#000 10%,#000 80%,transparent 100%);}
+  #stage{position:fixed;top:var(--safe-t);left:var(--safe-l);
+    width:auto;height:auto;right:var(--safe-r);bottom:var(--safe-b);
+    overflow:hidden;
+    /* 规范 §3.3：可视容器上下各 64px 透明→不透明，中部原样 */
+    -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 64px,#000 calc(100% - 64px),transparent 100%);
+    mask-image:linear-gradient(to bottom,transparent 0,#000 64px,#000 calc(100% - 64px),transparent 100%);}
   body.no-lyrics #stage{display:none;}
+  /* 安全区不足：整层不显示，避免盖住系统导航卡/组件 */
+  body.safe-withhold #stage{display:none;}
   /* 暂停或未连蓝牙超过 10s：歌词淡出隐藏 */
   body.idle-hide #stage{opacity:0;pointer-events:none;}
   #stage{transition:opacity .45s ease;}
   /* 从上沿起滚：原点在舞台顶部；行数不够居中时贴上边，够了再沉到屏幕中央 */
   #lyrics{position:absolute;top:0;left:0;right:0;padding:0 20px;
     will-change:transform;transition:transform var(--motion);}
+  body.safe-pos-left #lyrics{padding-left:4%;padding-right:10%;}
+  body.safe-pos-right #lyrics{padding-left:10%;padding-right:4%;}
   #lyrics.no-anim{transition:none;}
   /* 固定行高：放大只改字号，不改 offsetTop */
   .line{
@@ -289,6 +298,23 @@ function handleCmd(msg){
       if (al === 'right') document.body.classList.add('align-right');
     }
   }
+  else if (a === 'setSafeArea'){
+    var rs = document.documentElement.style;
+    var sw = msg.screenW || (window.innerWidth || 1920);
+    var sh = msg.screenH || (window.innerHeight || 1080);
+    var L = +msg.left || 0, T = +msg.top || 0;
+    var Wd = +msg.width || 0, Hd = +msg.height || 0;
+    var R = Math.max(0, sw - L - Wd);
+    var B = Math.max(0, sh - T - Hd);
+    rs.setProperty('--safe-l', L + 'px');
+    rs.setProperty('--safe-t', T + 'px');
+    rs.setProperty('--safe-r', R + 'px');
+    rs.setProperty('--safe-b', B + 'px');
+    document.body.classList.toggle('safe-withhold', !!msg.withhold);
+    document.body.classList.toggle('safe-pos-left', msg.position === 'left');
+    document.body.classList.toggle('safe-pos-right', msg.position !== 'left');
+    if (S.lines.length) positionToCurrent(true);
+  }
   else if (a === 'setScene'){
     var sc = msg.value;
     document.body.classList.toggle('mode-map', sc === 'map');
@@ -300,6 +326,16 @@ function handleCmd(msg){
   else if (a === 'setDebug'){
     S.debug = !!msg.value;
     updateVisibility();
+  }
+  else if (a === 'setAccent' && typeof msg.value === 'string'){
+    /* 设置页强调色注入：仅覆盖焦点色，不改白/黑正文色板 */
+    document.documentElement.style.setProperty('--focus', msg.value);
+    document.documentElement.style.setProperty('--focus-near', msg.value);
+  }
+  else if (a === 'setColor' && msg.value === 'system'){
+    /* 跟随系统：焦点色交给 setAccent；正文保持浅色可读 */
+    document.documentElement.style.setProperty('--fg', '#FFFFFF');
+    document.documentElement.style.setProperty('--far', 'rgba(255,255,255,.68)');
   }
   else if (a === 'setColor'){
     var c = msg.value;

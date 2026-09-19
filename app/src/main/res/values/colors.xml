@@ -1,4 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 默认（浅色 / day）= 规范 day ARGB -->
 <resources>
+    <color name="icar_left_bg">#EBF3F3F3</color>
+    <color name="icar_right_top">#F6FCFBFC</color>
+    <color name="icar_right_mid">#F9FDFDFD</color>
+    <color name="icar_right_bottom">#FFFFFFFF</color>
+    <color name="icar_neutral_card">#4DA4A6BD</color>
+    <color name="icar_text_primary">#FF000000</color>
+    <color name="icar_text_secondary">#8F000000</color>
+    <color name="icar_text_inactive">#B2000000</color>
+    <color name="icar_accent">#FF5C66BF</color>
+    <color name="icar_accent_pink">#FFDE5185</color>
+    <color name="icar_switch_off">#33A5ABAF</color>
+    <color name="icar_switch_thumb">#FFFFFFFF</color>
+    <color name="icar_dialog_mask">#66000000</color>
+    <color name="icar_status_ok">#FF16A34A</color>
+    <color name="icar_status_warn">#FFCA8A04</color>
+    <color name="icar_status_error">#FFDC2626</color>
+    <color name="icar_status_idle">#FF9CA3AF</color>
+    <color name="icar_nav_icon">#B2000000</color>
+    <color name="icar_qr_label">#FF000000</color>
     <color name="ic_launcher_background">#0E1420</color>
 </resources>

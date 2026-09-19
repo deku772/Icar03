@@ -31,12 +31,19 @@
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="IcarLyrics"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/IcarAppTheme">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:resizeableActivity="false"
+            android:configChanges="density|uiMode|orientation|screenSize|smallestScreenSize|screenLayout"
+            android:theme="@style/IcarAppTheme">
+            <!-- 规范 §3.2：标准右侧浮窗能力声明 -->
+            <meta-data
+                android:name="com.tcrrry.icar.window.STANDARD_FLOATING_WINDOW"
+                android:value="true" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -47,6 +54,20 @@
         <service
             android:name=".OverlayService"
             android:exported="false" />
+
+        <!-- 可选：读取 launcher 系统组件层几何（歌词避让） -->
+        <service
+            android:name=".IcarA11yService"
+            android:exported="true"
+            android:label="@string/a11y_desc"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
         <!-- 车机蓝牙媒体会话监听（歌词时间轴可信源，需 ADB 授权） -->
         <service

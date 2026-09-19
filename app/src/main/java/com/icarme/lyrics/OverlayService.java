@@ -70,29 +70,29 @@ public class OverlayService extends Service {
     private static final String KEY_AUTO_START = "auto_start";
     private static final String KEY_ALIGN = "lyrics_align"; /* left|center|right */
 
-    static boolean isAutoStart() {
+    public static boolean isAutoStart() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_AUTO_START, true);
     }
 
-    static void setAutoStart(boolean on) {
+    public static void setAutoStart(boolean on) {
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putBoolean(KEY_AUTO_START, on).apply();
     }
 
-    static String getAlign() {
+    public static String getAlign() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString(KEY_ALIGN, "center");
     }
 
-    static void setAlign(String align) {
+    public static void setAlign(String align) {
         if (!"left".equals(align) && !"center".equals(align) && !"right".equals(align)) return;
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_ALIGN, align).apply();
         pushAlign(align);
     }
 
-    static void pushAlign(String align) {
+    public static void pushAlign(String align) {
         try {
             org.json.JSONObject o = new org.json.JSONObject();
             o.put("type", "cmd");
@@ -102,22 +102,37 @@ public class OverlayService extends Service {
         } catch (Exception ignored) {}
     }
 
-    private static final String KEY_COLOR = "lyrics_color"; /* white|blue|green|amber|pink */
+    private static final String KEY_COLOR = "lyrics_color"; /* white|black|system|... */
 
-    static String getColor() {
+    public static String getColor() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_COLOR, "white");
+                .getString(KEY_COLOR, "system");
     }
 
-    static void setColor(String color) {
+    public static void setColor(String color) {
         if (!"white".equals(color) && !"blue".equals(color) && !"green".equals(color)
-                && !"amber".equals(color) && !"pink".equals(color) && !"black".equals(color)) return;
+                && !"amber".equals(color) && !"pink".equals(color) && !"black".equals(color)
+                && !"system".equals(color)) return;
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY_COLOR, color).apply();
         pushColor(color);
+        if ("system".equals(color)) {
+            pushAccent(com.icarme.lyrics.ui.ThemeAccent.accentColor());
+        }
     }
 
-    static void pushColor(String color) {
+    /** 注入设置页强调色到悬浮层焦点色（歌词颜色=跟随系统时） */
+    public static void pushAccent(int argb) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("type", "cmd");
+            o.put("action", "setAccent");
+            o.put("value", com.icarme.lyrics.ui.ThemeAccent.cssColor(argb));
+            push(o.toString());
+        } catch (Exception ignored) {}
+    }
+
+    public static void pushColor(String color) {
         try {
             org.json.JSONObject o = new org.json.JSONObject();
             o.put("type", "cmd");
@@ -128,16 +143,16 @@ public class OverlayService extends Service {
     }
 
     /** 当前偏移（ms），主界面调节后持久化。从未调过时返回默认提前量 */
-    static int getOffsetMs() {
+    public static int getOffsetMs() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getInt(KEY_OFFSET_MS, DEFAULT_LEAD_MS);
     }
 
-    static int offsetStepMs() { return OFFSET_STEP_MS; }
-    static int offsetCoarseMs() { return OFFSET_COARSE_MS; }
+    public static int offsetStepMs() { return OFFSET_STEP_MS; }
+    public static int offsetCoarseMs() { return OFFSET_COARSE_MS; }
 
     /** 调整偏移并持久化（±15s 夹取），同时立即下发给渲染器实时重定位 */
-    static int adjustOffsetMs(int deltaMs) {
+    public static int adjustOffsetMs(int deltaMs) {
         int v = Math.max(-OFFSET_LIMIT_MS, Math.min(OFFSET_LIMIT_MS, getOffsetMs() + deltaMs));
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putInt(KEY_OFFSET_MS, v).apply();
@@ -146,7 +161,7 @@ public class OverlayService extends Service {
     }
 
     /** 向渲染器下发当前偏移（服务未运行时静默跳过，启动时同步一次） */
-    static void pushOffset(int valueMs, boolean toast) {
+    public static void pushOffset(int valueMs, boolean toast) {
         try {
             org.json.JSONObject o = new org.json.JSONObject();
             o.put("type", "cmd");
@@ -157,9 +172,9 @@ public class OverlayService extends Service {
         } catch (Exception ignored) {}
     }
 
-    static void pushOffset(int valueMs) { pushOffset(valueMs, false); }
+    public static void pushOffset(int valueMs) { pushOffset(valueMs, false); }
 
-    static void pushScene(String mode) {
+    public static void pushScene(String mode) {
         try {
             org.json.JSONObject o = new org.json.JSONObject();
             o.put("type", "cmd");
@@ -170,19 +185,33 @@ public class OverlayService extends Service {
     }
 
     private static final String KEY_DEBUG = "overlay_debug";
+    /** 壁纸歌词屏幕位置：left|right（窗口级安全区左右镜像） */
+    private static final String KEY_WALL_POS = "lyrics_wallpaper_position";
 
-    static boolean isDebug() {
+    public static String getWallpaperPosition() {
+        return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_WALL_POS, "right");
+    }
+
+    public static void setWallpaperPosition(String pos) {
+        if (!"left".equals(pos) && !"right".equals(pos)) return;
+        IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_WALL_POS, pos).apply();
+        if (instance != null) instance.ui.post(instance::pushSafeArea);
+    }
+
+    public static boolean isDebug() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_DEBUG, false);
     }
 
-    static void setDebug(boolean on) {
+    public static void setDebug(boolean on) {
         IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putBoolean(KEY_DEBUG, on).apply();
         pushDebug(on);
     }
 
-    static void pushDebug(boolean on) {
+    public static void pushDebug(boolean on) {
         try {
             org.json.JSONObject o = new org.json.JSONObject();
             o.put("type", "cmd");
@@ -201,6 +230,7 @@ public class OverlayService extends Service {
         instance = this;
         running = true;
         ui = new Handler(Looper.getMainLooper());
+        DisplayPolicy.attach(this, () -> ui.post(this::pushSafeArea));
         startForeground();
         ui.post(this::showOverlay);
         startLocalTimeline();
@@ -210,6 +240,7 @@ public class OverlayService extends Service {
     public void onDestroy() {
         running = false;
         instance = null;
+        DisplayPolicy.detach(this);
         stopLocalTimeline();
         ui.post(this::hideOverlay);
         stopForeground(true);
@@ -247,7 +278,9 @@ public class OverlayService extends Service {
         }
     }
 
-    /** 每 2s 检测壁纸/地图，变化才下发 */
+    /** 每 2s 检测壁纸/地图 + 安全区（TBT / 无障碍场景层），变化才下发 */
+    private String lastSafeSig = "";
+
     private void pollScene() {
         long now = System.currentTimeMillis();
         if (now - lastScenePoll < 2000) return;
@@ -257,6 +290,35 @@ public class OverlayService extends Service {
             sceneMode = m;
             pushScene(m);
         }
+        pushSafeArea();
+    }
+
+    /** 下发安全区：地图 TBT inset + 壁纸左/右位置 + 可选场景层顶边 */
+    void pushSafeArea() {
+        String pos = getWallpaperPosition();
+        Integer sceneTop = IcarA11yService.leftSceneTopPx;
+        DisplayPolicy.SafeBox box =
+                DisplayPolicy.compute(this, sceneMode, pos, sceneTop);
+        String sig = sceneMode + "|" + pos + "|" + box.left + "," + box.top + ","
+                + box.width + "," + box.height + "|" + box.withhold + "|" + box.mapInset;
+        if (sig.equals(lastSafeSig)) return;
+        lastSafeSig = sig;
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("type", "cmd");
+            o.put("action", "setSafeArea");
+            o.put("mode", sceneMode == null ? "wallpaper" : sceneMode);
+            o.put("position", pos == null ? "right" : pos);
+            o.put("left", box.left);
+            o.put("top", box.top);
+            o.put("width", box.width);
+            o.put("height", box.height);
+            o.put("mapInset", box.mapInset);
+            o.put("withhold", box.withhold);
+            o.put("screenW", getResources().getDisplayMetrics().widthPixels);
+            o.put("screenH", getResources().getDisplayMetrics().heightPixels);
+            push(o.toString());
+        } catch (Exception ignored) {}
     }
 
     /** 读车机蓝牙栈会话进度；只信 PLAYING 快照。
@@ -387,6 +449,8 @@ public class OverlayService extends Service {
                     pushAlign(getAlign());
                     pushColor(getColor());
                     pushDebug(isDebug());
+                    lastSafeSig = "";
+                    pushSafeArea();
                 }
             }
         });

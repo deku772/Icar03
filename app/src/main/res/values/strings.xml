@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_desc">读取原车桌面 Dock 与场景层位置，用于歌词避让系统组件（不收集、不上传任何数据）。</string>
+</resources>

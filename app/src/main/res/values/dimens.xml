@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  原车物理 px → 项目 dp：dp = px * 160 / 141
+  标准浮窗 1230x810 @(660,90) → 约 1397x919 @(750,102)
+-->
+<resources>
+    <dimen name="icar_std_window_width">1397dp</dimen>
+    <dimen name="icar_std_window_height">919dp</dimen>
+    <dimen name="icar_std_window_x">750dp</dimen>
+    <dimen name="icar_std_window_y">102dp</dimen>
+
+    <dimen name="icar_nav_width">345dp</dimen>
+    <dimen name="icar_nav_pad_h">29.5dp</dimen>
+    <dimen name="icar_nav_item_w">286dp</dimen>
+    <dimen name="icar_nav_item_h">95dp</dimen>
+    <dimen name="icar_nav_title_size">36sp</dimen>
+
+    <dimen name="icar_content_pad_l">48dp</dimen>
+    <dimen name="icar_content_pad_r">41dp</dimen>
+    <dimen name="icar_content_pad_v">48dp</dimen>
+
+    <dimen name="icar_seg_height">95dp</dimen>
+    <dimen name="icar_seg_pad">7dp</dimen>
+    <dimen name="icar_seg_radius_outer">20dp</dimen>
+    <dimen name="icar_seg_radius_inner">14dp</dimen>
+    <dimen name="icar_group_title_gap">20dp</dimen>
+    <dimen name="icar_group_gap">40dp</dimen>
+
+    <dimen name="icar_switch_card_w">466dp</dimen>
+    <dimen name="icar_switch_card_h">143dp</dimen>
+    <dimen name="icar_switch_card_gap">29dp</dimen>
+    <dimen name="icar_switch_w">73dp</dimen>
+    <dimen name="icar_switch_h">41dp</dimen>
+
+    <dimen name="icar_body1">31.75sp</dimen>
+    <dimen name="icar_body2">27.25sp</dimen>
+    <dimen name="icar_caption2">22.75sp</dimen>
+
+    <dimen name="icar_dialog_width">860dp</dimen>
+    <dimen name="icar_dialog_pad">48dp</dimen>
+    <dimen name="icar_dialog_btn_h">95dp</dimen>
+
+    <dimen name="icar_action_row_h">143dp</dimen>
+    <dimen name="icar_info_row_h">126dp</dimen>
+    <dimen name="icar_qr_size">260dp</dimen>
+    <dimen name="icar_title_badge_w">52dp</dimen>
+    <dimen name="icar_title_badge_h">26dp</dimen>
+    <dimen name="icar_title_badge_up">8dp</dimen>
+    <dimen name="icar_corner_card">20dp</dimen>
+    <dimen name="icar_corner_action">20dp</dimen>
+    <dimen name="icar_stroke">1dp</dimen>
+    <dimen name="icar_nav_icon_size">32dp</dimen>
+</resources>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="IcarAppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowAnimationStyle">@style/IcarWindowAnim</item>
+        <item name="android:colorAccent">@color/icar_accent</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
+    <!-- 规范 §3.1：整窗 Y 轴进出场，绑定在窗口动画样式 -->
+    <style name="IcarWindowAnim" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/bottom_in</item>
+        <item name="android:activityOpenExitAnimation">@anim/bottom_out</item>
+        <item name="android:activityCloseEnterAnimation">@anim/bottom_in</item>
+        <item name="android:activityCloseExitAnimation">@anim/bottom_out</item>
+        <item name="android:taskOpenEnterAnimation">@anim/bottom_in</item>
+        <item name="android:taskOpenExitAnimation">@anim/bottom_out</item>
+        <item name="android:taskCloseEnterAnimation">@anim/bottom_in</item>
+        <item name="android:taskCloseExitAnimation">@anim/bottom_out</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/bottom_in</item>
+        <item name="android:taskToFrontExitAnimation">@anim/bottom_out</item>
+        <item name="android:taskToBackEnterAnimation">@anim/bottom_in</item>
+        <item name="android:taskToBackExitAnimation">@anim/bottom_out</item>
+        <item name="android:wallpaperOpenEnterAnimation">@anim/bottom_in</item>
+        <item name="android:wallpaperOpenExitAnimation">@anim/bottom_out</item>
+        <item name="android:wallpaperCloseEnterAnimation">@anim/bottom_in</item>
+        <item name="android:wallpaperCloseExitAnimation">@anim/bottom_out</item>
+    </style>
+</resources>

@@ -4,4 +4,6 @@ build/
 .gradle/
 local.properties
 private/
+assets/
+notes/ui-mode-a-car.png
 # notes/ 技术路线笔记已纳入版本管理，换机器可从远程找回

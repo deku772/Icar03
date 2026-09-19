@@ -2,15 +2,19 @@ package com.icarme.lyrics;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -20,129 +24,79 @@ import android.os.ParcelUuid;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.CheckBox;
-import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.icarme.lyrics.ui.LyricsSettingsRenderer;
+import com.icarme.lyrics.ui.ThemeAccent;
+import com.icarme.lyrics.ui.UiKit;
+
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 主界面（v2.1 深色车机风格）：
- * 状态卡片（彩色指示点）+ 大号圆角按钮 + 帮助卡片。
- *
- * v2.0：车机为 GATT 客户端，扫描发现手机（IcarLyrics 服务 UUID）后直连，
- * 不再手工配置 MAC（手机外设地址随机化，存 MAC 不可靠）。
+ * 车机设置页 · 模式 A：左导航 + 右内容。
+ * 规范：原车设置双栏视觉；本 Activity 只负责导航、主题、窗口与动作转发。
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements LyricsSettingsRenderer.Host {
 
     private static final long SCAN_MS = 10000;
+    private static final String PREFS = "icarlyrics";
+    private static final String KEY_SHOW_HELP = "show_adb_help";
+    private static final String KEY_PAGE = "settings_page";
 
-    /* 深色主题色板 */
-    private static final int C_BG        = 0xFF0B0F17;
-    private static final int C_CARD      = 0xFF141A28;
-    private static final int C_STROKE    = 0xFF232C42;
-    private static final int C_TEXT      = 0xFFEFF2F8;
-    private static final int C_TEXT_DIM  = 0xFF8A93A8;
-    private static final int C_PRIMARY   = 0xFF5B93F0;
-    private static final int C_GREEN     = 0xFF4ADE80;
-    private static final int C_RED       = 0xFFF87171;
-    private static final int C_AMBER     = 0xFFFBBF24;
-
-    private Button btnService;
-    private Button btnScan;
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private AlertDialog installDialog;
-
-    /* 扫描发现结果 */
     private final List<ScanResult> found = new ArrayList<>();
     private boolean scanning = false;
+    private boolean helpOpen;
+    private String page = LyricsSettingsRenderer.SettingsPages.LYRICS;
 
-    /* 状态行控件（refreshStatus 动态更新点色与值） */
-    private static final int ROW_COUNT = 8;
-    private static final int ROW_PERM = 0, ROW_OVERLAY = 1, ROW_BLE = 2, ROW_CONN = 3,
-            ROW_PHONE = 4, ROW_OFFSET = 5, ROW_ALIGN = 6, ROW_COLOR = 7;
-    private final View[] rowDots = new View[ROW_COUNT];
-    private final TextView[] rowValues = new TextView[ROW_COUNT];
-    private TextView tvScanHint;
+    private FrameLayout root;
+    private FrameLayout dialogHost;
+    private LinearLayout leftNav;
+    private FrameLayout contentHost;
+    private LinearLayout navItems;
+    private LyricsSettingsRenderer renderer;
 
     private final ScanCallback scanCb = new ScanCallback() {
         @Override public void onScanResult(int callbackType, ScanResult result) {
-            boolean first = found.isEmpty();
             for (int i = 0; i < found.size(); i++) {
                 if (found.get(i).getDevice().getAddress().equals(result.getDevice().getAddress())) {
-                    found.set(i, result);   /* 刷新 RSSI */
+                    found.set(i, result);
                     return;
                 }
             }
             found.add(result);
-            /* 发现即弹出选择，不等 10s 扫满 */
-            if (first) {
-                ui.post(() -> {
-                    if (scanning && !found.isEmpty()) showScanResult();
-                });
-            }
         }
         @Override public void onScanFailed(int errorCode) {
             scanning = false;
-            btnScan.setText("扫描失败(" + errorCode + ")，点此重试");
+            showHint("扫描失败(" + errorCode + ")，请重试");
         }
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        getWindow().setWindowAnimations(R.style.IcarWindowAnim);
 
-        int pad = dp(20);
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(C_BG);
-        scroll.setFillViewport(true);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(pad, dp(16), pad, pad);
-        scroll.addView(root);
-
-        root.addView(buildHeader());
-
-        /* 左：状态行；右：下载码 + 大图赞赏码 */
-        LinearLayout mainRow = new LinearLayout(this);
-        mainRow.setOrientation(LinearLayout.HORIZONTAL);
-        mainRow.setGravity(Gravity.TOP);
-        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        mlp.topMargin = dp(14);
-        mainRow.setLayoutParams(mlp);
-
-        View status = buildStatusCard();
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, dp(360), 1.15f);
-        status.setLayoutParams(slp);
-        mainRow.addView(status);
-
-        View qr = buildQrCard();
-        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(0, dp(360), 1f);
-        qlp.leftMargin = dp(12);
-        qr.setLayoutParams(qlp);
-        mainRow.addView(qr);
-
-        root.addView(mainRow);
-        root.addView(buildButtons());
-        root.addView(buildHelpCard());
-        setContentView(scroll);
-
-        /* 仅手动「检查更新」，启动不自动弹窗 */
-
-        /* 周期刷新状态行（服务启动/断连重试等变化即时可见） */
-        ui.postDelayed(new Runnable() {
-            @Override public void run() {
-                if (isFinishing()) return;
-                refreshStatus();
-                ui.postDelayed(this, 1000);
-            }
-        }, 500);
+        helpOpen = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SHOW_HELP, false);
+        page = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_PAGE,
+                LyricsSettingsRenderer.SettingsPages.LYRICS);
+        ThemeAccent.attach(this, this::onAccentChanged);
+        DisplayPolicy.attach(this, null);
+        renderer = new LyricsSettingsRenderer(this);
+        applyStandardWindow();
+        buildShell();
+        showPage(page);
 
         if (!Settings.canDrawOverlays(this)) {
             try {
@@ -150,9 +104,266 @@ public class MainActivity extends Activity {
                         Uri.parse("package:" + getPackageName())));
             } catch (Exception ignored) { }
         }
-        /* BLE 扫描需要定位：启动时主动弹系统授权框（车机也可点，不必等 ADB） */
         ensureLocationPermission(false);
+
+        ui.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (isFinishing()) return;
+                if (LyricsSettingsRenderer.SettingsPages.SERVICE.equals(page)) {
+                    showPage(page);
+                }
+                ui.postDelayed(this, 1500);
+            }
+        }, 1200);
     }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        ThemeAccent.attach(this, this::onAccentChanged);
+        // 梦博启动器 freeform 可能在 onCreate 后改写窗口，回前台时重申标准浮窗几何
+        applyStandardWindow();
+        showPage(page);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applyStandardWindow();
+    }
+
+    @Override
+    protected void onDestroy() {
+        ThemeAccent.detach(this);
+        DisplayPolicy.detach(this);
+        super.onDestroy();
+    }
+
+    private void onAccentChanged() {
+        OverlayService.pushAccent(ThemeAccent.accentColor());
+        if ("system".equals(OverlayService.getColor())) {
+            // 悬浮层已接收 accent 推送
+        }
+        showPage(page);
+    }
+
+    /** 规范 §3：标准右侧浮窗几何；非车机大屏回退全屏。 */
+    private void applyStandardWindow() {
+        DisplayMetricsHolder dmh = DisplayMetricsHolder.of(this);
+        if (!dmh.carLike) return;
+        Window w = getWindow();
+        w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        WindowManager.LayoutParams lp = w.getAttributes();
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.x = dmh.x;
+        lp.y = dmh.y;
+        lp.width = dmh.w;
+        lp.height = dmh.h;
+        w.setAttributes(lp);
+        w.setWindowAnimations(R.style.IcarWindowAnim);
+        // 启动器 freeform 可能随后改写 bounds，再请求一次目标几何
+        w.setLayout(dmh.w, dmh.h);
+    }
+
+    private static final class DisplayMetricsHolder {
+        boolean carLike;
+        int x, y, w, h;
+
+        static DisplayMetricsHolder of(Context c) {
+            DisplayMetricsHolder o = new DisplayMetricsHolder();
+            android.util.DisplayMetrics dm = c.getResources().getDisplayMetrics();
+            o.carLike = dm.widthPixels >= 1800 || Math.abs(dm.densityDpi - 141) <= 12;
+            o.x = c.getResources().getDimensionPixelSize(R.dimen.icar_std_window_x);
+            o.y = c.getResources().getDimensionPixelSize(R.dimen.icar_std_window_y);
+            o.w = c.getResources().getDimensionPixelSize(R.dimen.icar_std_window_width);
+            o.h = c.getResources().getDimensionPixelSize(R.dimen.icar_std_window_height);
+            return o;
+        }
+    }
+
+    private void buildShell() {
+        root = new FrameLayout(this);
+        root.setBackgroundColor(Color.TRANSPARENT);
+
+        LinearLayout split = new LinearLayout(this);
+        split.setOrientation(LinearLayout.HORIZONTAL);
+
+        leftNav = buildLeftNav();
+        split.addView(leftNav, new LinearLayout.LayoutParams(
+                getResources().getDimensionPixelSize(R.dimen.icar_nav_width),
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        contentHost = new FrameLayout(this);
+        contentHost.setBackgroundResource(R.drawable.icar_bg_right);
+        split.addView(contentHost, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+
+        root.addView(split, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        dialogHost = new FrameLayout(this);
+        dialogHost.setVisibility(View.GONE);
+        root.addView(dialogHost, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+    }
+
+    private LinearLayout buildLeftNav() {
+        LinearLayout nav = new LinearLayout(this);
+        nav.setOrientation(LinearLayout.VERTICAL);
+        nav.setBackgroundResource(R.drawable.icar_bg_left);
+        int pad = getResources().getDimensionPixelSize(R.dimen.icar_nav_pad_h);
+        nav.setPadding(pad, getResources().getDimensionPixelSize(R.dimen.icar_content_pad_v), pad, pad);
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER);
+        TextView title = new TextView(this);
+        title.setText("IcarLyrics");
+        title.setTextColor(UiKit.color(this, R.color.icar_text_primary));
+        title.setTextSize(TypedValuePx(this, R.dimen.icar_nav_title_size));
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        titleRow.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        nav.addView(titleRow, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        navItems = new LinearLayout(this);
+        navItems.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams itemsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        itemsLp.topMargin = UiKit.dpI(this, 40);
+        nav.addView(navItems, itemsLp);
+
+        addNavItem(LyricsSettingsRenderer.SettingsPages.LYRICS, "歌词设置");
+        addNavItem(LyricsSettingsRenderer.SettingsPages.SERVICE, "服务状态");
+
+        View spacer = new View(this);
+        navItems.addView(spacer, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        addNavItem(LyricsSettingsRenderer.SettingsPages.ABOUT, "关于");
+        return nav;
+    }
+
+    private float TypedValuePx(Context c, int dimen) {
+        return c.getResources().getDimension(dimen);
+    }
+
+    private void addNavItem(final String id, String label) {
+        LinearLayout item = new LinearLayout(this);
+        item.setOrientation(LinearLayout.HORIZONTAL);
+        item.setGravity(Gravity.CENTER_VERTICAL);
+        int h = getResources().getDimensionPixelSize(R.dimen.icar_nav_item_h);
+        int w = getResources().getDimensionPixelSize(R.dimen.icar_nav_item_w);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
+        lp.bottomMargin = UiKit.dpI(this, 12);
+        item.setLayoutParams(lp);
+        item.setPadding(UiKit.dpI(this, 20), 0, UiKit.dpI(this, 20), 0);
+
+        View icon = new View(this);
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(ThemeAccent.accentColor());
+        icon.setBackground(dot);
+        int iconSz = getResources().getDimensionPixelSize(R.dimen.icar_nav_icon_size);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(iconSz / 2, iconSz / 2);
+        ilp.rightMargin = UiKit.dpI(this, 20);
+        item.addView(icon, ilp);
+
+        TextView labelView = new TextView(this);
+        labelView.setText(label);
+        labelView.setTextSize(TypedValuePx(this, R.dimen.icar_body2));
+        labelView.setTag("label");
+        item.addView(labelView, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        item.setTag(id);
+        item.setOnClickListener(v -> showPage(id));
+        navItems.addView(item);
+        restyleNavItem(item);
+    }
+
+    private void restyleNavItem(LinearLayout item) {
+        if (item == null) return;
+        Object tag = item.getTag();
+        boolean selected = page != null && page.equals(tag);
+        TextView label = item.findViewWithTag("label");
+        int accent = ThemeAccent.accentColor();
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(UiKit.dp(this, 20));
+        if (selected) {
+            bg.setColor(accent);
+            item.setBackground(bg);
+            if (label != null) {
+                label.setTextColor(ThemeAccent.onAccentTextColor(accent));
+                label.setTypeface(Typeface.DEFAULT_BOLD);
+            }
+        } else {
+            bg.setColor(0x00000000);
+            item.setBackground(bg);
+            if (label != null) {
+                label.setTextColor(UiKit.color(this, R.color.icar_text_inactive));
+                label.setTypeface(Typeface.DEFAULT);
+            }
+        }
+    }
+
+    private void restyleAllNav() {
+        for (int i = 0; i < navItems.getChildCount(); i++) {
+            View c = navItems.getChildAt(i);
+            if (c instanceof LinearLayout) restyleNavItem((LinearLayout) c);
+        }
+    }
+
+    private void showPage(String id) {
+        page = id;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_PAGE, id).apply();
+        restyleAllNav();
+        contentHost.removeAllViews();
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(true);
+        scroll.setBackgroundColor(Color.TRANSPARENT);
+        scroll.addView(renderer.renderCategory(id));
+        contentHost.addView(scroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    /* ---------------- Host ---------------- */
+
+    @Override public Context context() { return this; }
+    @Override public boolean isHelpOpen() { return helpOpen; }
+
+    @Override public void refreshChrome() {
+        showPage(page);
+    }
+
+    @Override public void onToggleHelp() {
+        helpOpen = !helpOpen;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SHOW_HELP, helpOpen).apply();
+        showPage(LyricsSettingsRenderer.SettingsPages.ABOUT);
+    }
+
+    @Override public void onScanPhones() { scanPhones(); }
+
+    @Override public void onToggleService() { toggleService(); }
+
+    @Override public void onRestartService() {
+        try { stopService(new Intent(this, OverlayService.class)); } catch (Exception ignored) {}
+        try { stopService(new Intent(this, BleService.class)); } catch (Exception ignored) {}
+        if (Settings.canDrawOverlays(this)) {
+            OverlayService.setAutoStart(true);
+            startService(new Intent(this, OverlayService.class));
+            try { startForegroundService(new Intent(this, BleService.class)); } catch (Exception ignored) {}
+            showHint("已重启悬浮歌词服务");
+        } else {
+            showHint("请先授予悬浮窗权限");
+        }
+        ui.postDelayed(() -> showPage(page), 400);
+    }
+
+    @Override public void onDownloadApk() { showMirrorDownloadDialog(); }
+
+    /* ---------------- 权限 / 扫描 / 服务 ---------------- */
 
     private static final int REQ_LOCATION = 11;
 
@@ -161,12 +372,10 @@ public class MainActivity extends Activity {
         try {
             requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQ_LOCATION);
         } catch (Exception e) {
-            showHint("无法弹出定位授权，请用 ADB:\npm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
+            showHint("请用 ADB 授予定位权限");
             return;
         }
-        if (forceHint) {
-            showHint("请在系统弹窗中点「允许」定位权限");
-        }
+        if (forceHint) showHint("请在系统弹窗中点「允许」定位权限");
     }
 
     @Override
@@ -176,458 +385,8 @@ public class MainActivity extends Activity {
             boolean ok = grantResults != null && grantResults.length > 0
                     && grantResults[0] == PackageManager.PERMISSION_GRANTED;
             showHint(ok ? "定位权限已授予，可扫描手机" : "定位未授予，BLE 扫描不可用");
-            refreshStatus();
         }
     }
-
-    /* ---------------- 界面构建 ---------------- */
-
-    private View buildHeader() {
-        LinearLayout h = new LinearLayout(this);
-        h.setOrientation(LinearLayout.HORIZONTAL);
-        h.setGravity(Gravity.CENTER_VERTICAL);
-
-        /* Logo 徽章：圆角深底 + 蓝描边 + 前景矢量 */
-        GradientDrawable badge = new GradientDrawable();
-        badge.setCornerRadius(dp(16));
-        badge.setColor(0xFF101725);
-        badge.setStroke(dp(1), C_STROKE);
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(R.drawable.ic_launcher_foreground);
-        logo.setBackground(badge);
-        logo.setPadding(dp(8), dp(8), dp(8), dp(8));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(64), dp(64));
-        lp.rightMargin = dp(16);
-        logo.setLayoutParams(lp);
-        h.addView(logo);
-
-        LinearLayout t = new LinearLayout(this);
-        t.setOrientation(LinearLayout.VERTICAL);
-        TextView title = new TextView(this);
-        title.setText("IcarLyrics");
-        title.setTextColor(C_TEXT);
-        title.setTextSize(26);
-        title.setTypeface(null, android.graphics.Typeface.BOLD);
-        TextView sub = new TextView(this);
-        sub.setText("车机悬浮歌词 · BLE 接收端");
-        sub.setTextColor(C_TEXT_DIM);
-        sub.setTextSize(14);
-        t.addView(title);
-        t.addView(sub);
-        h.addView(t);
-        return h;
-    }
-
-    private View buildStatusCard() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.card_bg);
-        card.setPadding(dp(12), dp(8), dp(12), dp(8));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(20);
-        card.setLayoutParams(lp);
-
-        String[] labels = {"悬浮窗权限", "悬浮服务", "BLE 服务", "连接状态", "手机地址", "歌词偏移", "对齐", "颜色"};
-        for (int i = 0; i < ROW_COUNT; i++) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(6), 0, dp(6));
-
-            View dot = new View(this);
-            GradientDrawable d = new GradientDrawable();
-            d.setShape(GradientDrawable.OVAL);
-            d.setColor(C_GREEN);
-            dot.setBackground(d);
-            row.addView(dot, new LinearLayout.LayoutParams(dp(9), dp(9)));
-
-            TextView label = new TextView(this);
-            label.setText(labels[i]);
-            label.setTextColor(C_TEXT_DIM);
-            label.setTextSize(12);
-            LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(
-                    dp(72), LinearLayout.LayoutParams.WRAP_CONTENT);
-            llp.leftMargin = dp(8);
-            label.setLayoutParams(llp);
-            row.addView(label);
-
-            TextView value = new TextView(this);
-            value.setTextColor(C_TEXT);
-            value.setTextSize(12);
-            value.setSingleLine(false);
-            value.setMaxLines(2);
-            row.addView(value, new LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-            rowDots[i] = dot;
-            rowValues[i] = value;
-            card.addView(row);
-
-            /* 歌词偏移行：点按 500ms，长按 2s；词晚于声→提前，词早于声→延后 */
-            if (i == ROW_OFFSET) {
-                LinearLayout ctl = new LinearLayout(this);
-                ctl.setOrientation(LinearLayout.HORIZONTAL);
-                ctl.setGravity(Gravity.CENTER_VERTICAL);
-                final int step = OverlayService.offsetStepMs();
-                final int coarse = OverlayService.offsetCoarseMs();
-                Button later = new Button(new android.view.ContextThemeWrapper(this,
-                        android.R.style.Widget_Material_Button_Borderless), null, 0);
-                later.setText("延后");
-                styleMiniButton(later);
-                later.setOnClickListener(v -> {
-                    OverlayService.adjustOffsetMs(-step);
-                    refreshStatus();
-                });
-                later.setOnLongClickListener(v -> {
-                    OverlayService.adjustOffsetMs(-coarse);
-                    refreshStatus();
-                    return true;
-                });
-                Button earlier = new Button(new android.view.ContextThemeWrapper(this,
-                        android.R.style.Widget_Material_Button_Borderless), null, 0);
-                earlier.setText("提前");
-                styleMiniButton(earlier);
-                earlier.setOnClickListener(v -> {
-                    OverlayService.adjustOffsetMs(step);
-                    refreshStatus();
-                });
-                earlier.setOnLongClickListener(v -> {
-                    OverlayService.adjustOffsetMs(coarse);
-                    refreshStatus();
-                    return true;
-                });
-                ctl.addView(later);
-                ctl.addView(earlier);
-                LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                ctl.setLayoutParams(clp);
-                row.addView(ctl);
-            }
-            /* 对齐行：居左 / 居中 / 居右 */
-            if (i == ROW_ALIGN) {
-                LinearLayout ctl = new LinearLayout(this);
-                ctl.setOrientation(LinearLayout.HORIZONTAL);
-                ctl.setGravity(Gravity.CENTER_VERTICAL);
-                String[] als = {"left", "center", "right"};
-                String[] names = {"居中左", "居中", "居中右"};
-                for (int k = 0; k < 3; k++) {
-                    final String al = als[k];
-                    Button b = new Button(new android.view.ContextThemeWrapper(this,
-                            android.R.style.Widget_Material_Button_Borderless), null, 0);
-                    b.setText(names[k]);
-                    styleMiniButton(b);
-                    b.setOnClickListener(v -> {
-                        OverlayService.setAlign(al);
-                        refreshStatus();
-                    });
-                    ctl.addView(b);
-                }
-                row.addView(ctl);
-            }
-            /* 颜色行：白 / 黑 / 蓝 / 绿 / 琥珀 / 粉 */
-            if (i == ROW_COLOR) {
-                LinearLayout wrap = new LinearLayout(this);
-                wrap.setOrientation(LinearLayout.HORIZONTAL);
-                wrap.setGravity(Gravity.CENTER_VERTICAL);
-                String[] cols = {"white", "black", "blue", "green", "amber", "pink"};
-                String[] names = {"白", "黑", "蓝", "绿", "琥珀", "粉"};
-                for (int k = 0; k < cols.length; k++) {
-                    final String col = cols[k];
-                    Button b = new Button(new android.view.ContextThemeWrapper(this,
-                            android.R.style.Widget_Material_Button_Borderless), null, 0);
-                    b.setText(names[k]);
-                    b.setBackgroundResource(R.drawable.btn_ghost);
-                    b.setTextColor(C_PRIMARY);
-                    b.setTextSize(13);
-                    b.setAllCaps(false);
-                    b.setStateListAnimator(null);
-                    LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(dp(52), dp(44));
-                    blp.leftMargin = dp(4);
-                    b.setLayoutParams(blp);
-                    b.setOnClickListener(v -> {
-                        OverlayService.setColor(col);
-                        refreshStatus();
-                    });
-                    wrap.addView(b);
-                }
-                row.addView(wrap);
-            }
-        }
-        return card;
-    }
-
-    private void styleMiniButton(Button b) {
-        b.setBackgroundResource(R.drawable.btn_ghost);
-        b.setTextColor(C_PRIMARY);
-        b.setTextSize(12);
-        b.setAllCaps(false);
-        b.setStateListAnimator(null);
-        b.setPadding(dp(6), 0, dp(6), 0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(56), dp(40));
-        lp.leftMargin = dp(3);
-        b.setLayoutParams(lp);
-    }
-
-    private View buildButtons() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        blp.topMargin = dp(18);
-        box.setLayoutParams(blp);
-
-        /* 统一蓝底主按钮：1 扫描 → 2 启停悬浮 → 3 下载 APK（取消检查更新，更新走下载） */
-        btnScan = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnScan.setText("1 · 扫描发现手机");
-        styleButton(btnScan, R.drawable.btn_primary, 0xFFFFFFFF, true);
-        btnScan.setOnClickListener(v -> scanPhones());
-        box.addView(btnScan);
-
-        tvScanHint = new TextView(this);
-        tvScanHint.setTextColor(C_TEXT_DIM);
-        tvScanHint.setTextSize(13);
-        tvScanHint.setGravity(Gravity.CENTER);
-        tvScanHint.setPadding(0, dp(6), 0, dp(6));
-        tvScanHint.setVisibility(View.GONE);
-        box.addView(tvScanHint);
-
-        btnService = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnService.setText("2 · 启动歌词悬浮");
-        styleButton(btnService, R.drawable.btn_primary, 0xFFFFFFFF, true);
-        btnService.setOnClickListener(v -> toggleService());
-        box.addView(btnService);
-
-        Button btnMirror = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnMirror.setText("3 · 下载 APK（可选镜像）");
-        styleButton(btnMirror, R.drawable.btn_primary, 0xFFFFFFFF, true);
-        btnMirror.setOnClickListener(v -> showMirrorDownloadDialog());
-        box.addView(btnMirror);
-
-        final CheckBox cbDbg = new CheckBox(this);
-        cbDbg.setText("悬浮调试信息（连接提示 / 分片统计）");
-        cbDbg.setTextColor(C_TEXT_DIM);
-        cbDbg.setTextSize(13);
-        cbDbg.setChecked(OverlayService.isDebug());
-        cbDbg.setOnCheckedChangeListener((bv, checked) -> {
-            OverlayService.setDebug(checked);
-            showHint(checked ? "已开启悬浮调试" : "已关闭悬浮调试");
-        });
-        box.addView(cbDbg);
-        return box;
-    }
-
-    /** 右侧：左=下载手机端，右=微信赞赏码（抠出的本体，右侧更大） */
-    private View buildQrCard() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundResource(R.drawable.card_bg);
-        card.setPadding(dp(10), dp(10), dp(10), dp(10));
-
-        TextView cap = new TextView(this);
-        cap.setText("左：下载手机端 · 右：微信赞赏");
-        cap.setTextColor(C_TEXT_DIM);
-        cap.setTextSize(12);
-        cap.setGravity(Gravity.CENTER);
-        card.addView(cap);
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        rlp.topMargin = dp(6);
-        row.setLayoutParams(rlp);
-
-        /* 下载码 */
-        ImageView dl = new ImageView(this);
-        try {
-            dl.setImageBitmap(QrEncoder.encode(PHONE_APK_URL, 4));
-        } catch (Exception ignored) {}
-        dl.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        row.addView(dl, new LinearLayout.LayoutParams(0, dp(150), 1f));
-
-        /* 赞赏码本体（右侧稍大） */
-        ImageView tip = new ImageView(this);
-        tip.setImageResource(R.drawable.wechat_qr);
-        tip.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams tipLp = new LinearLayout.LayoutParams(0, dp(170), 1.25f);
-        tipLp.leftMargin = dp(10);
-        tip.setLayoutParams(tipLp);
-        row.addView(tip);
-
-        card.addView(row);
-
-        TextView tipCap = new TextView(this);
-        tipCap.setText("Mysa");
-        tipCap.setTextColor(C_AMBER);
-        tipCap.setTextSize(12);
-        tipCap.setGravity(Gravity.CENTER);
-        tipCap.setPadding(0, dp(4), 0, 0);
-        card.addView(tipCap);
-        return card;
-    }
-
-    private void styleButton(Button b, int bg, int textColor, boolean big) {
-        b.setBackgroundResource(bg);
-        b.setTextColor(textColor);
-        b.setTextSize(17);
-        b.setAllCaps(false);
-        b.setStateListAnimator(null);
-        b.setPadding(dp(18), 0, dp(18), 0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
-        lp.topMargin = dp(12);
-        b.setLayoutParams(lp);
-    }
-
-    private static final String PREFS = "icarlyrics";
-    private static final String KEY_SHOW_HELP = "show_adb_help";
-
-    private View buildHelpCard() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setBackgroundResource(R.drawable.card_bg);
-        box.setPadding(dp(20), dp(16), dp(20), dp(14));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.topMargin = dp(20);
-        box.setLayoutParams(lp);
-
-        boolean showHelp = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_SHOW_HELP, false);
-
-        Button btnHelp = new Button(new android.view.ContextThemeWrapper(this,
-                android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnHelp.setText(showHelp ? "收起 ADB 授权帮助" : "ADB 授权帮助");
-        btnHelp.setBackgroundResource(R.drawable.btn_ghost);
-        btnHelp.setTextColor(C_PRIMARY);
-        btnHelp.setTextSize(14);
-        btnHelp.setAllCaps(false);
-        btnHelp.setStateListAnimator(null);
-        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(42));
-        btnHelp.setLayoutParams(hlp);
-        box.addView(btnHelp);
-
-        final LinearLayout helpWrap = new LinearLayout(this);
-        helpWrap.setOrientation(LinearLayout.VERTICAL);
-        helpWrap.setVisibility(showHelp ? View.VISIBLE : View.GONE);
-
-        ScrollView sv = new ScrollView(this);
-        TextView help = new TextView(this);
-        help.setText(AdbHelper.helpText());
-        help.setTextColor(C_TEXT_DIM);
-        help.setTextSize(12);
-        help.setLineSpacing(dp(3), 1f);
-        sv.addView(help);
-        helpWrap.addView(sv, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(160)));
-
-        final CheckBox cbHide = new CheckBox(this);
-        cbHide.setText("不再显示（弄好授权后勾选）");
-        cbHide.setTextColor(C_TEXT_DIM);
-        cbHide.setTextSize(13);
-        cbHide.setChecked(!showHelp);
-        helpWrap.addView(cbHide);
-        box.addView(helpWrap);
-
-        btnHelp.setOnClickListener(v -> {
-            boolean vis = helpWrap.getVisibility() != View.VISIBLE;
-            helpWrap.setVisibility(vis ? View.VISIBLE : View.GONE);
-            btnHelp.setText(vis ? "收起 ADB 授权帮助" : "ADB 授权帮助");
-            if (!vis && cbHide.isChecked()) {
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SHOW_HELP, false).apply();
-            }
-        });
-        cbHide.setOnCheckedChangeListener((bv, checked) -> {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_SHOW_HELP, !checked).apply();
-        });
-
-        TextView repo = new TextView(this);
-        repo.setText("项目地址：github.com/deku772/Icar03");
-        repo.setTextColor(0xFF5B93F0);
-        repo.setTextSize(12);
-        repo.setGravity(Gravity.CENTER);
-        repo.setPadding(0, dp(8), 0, 0);
-        box.addView(repo);
-        return box;
-    }
-
-    /* ---------------- 状态刷新 ---------------- */
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        refreshStatus();
-    }
-
-    private void setDot(int row, int color) {
-        GradientDrawable d = new GradientDrawable();
-        d.setShape(GradientDrawable.OVAL);
-        d.setColor(color);
-        rowDots[row].setBackground(d);
-    }
-
-    private void refreshStatus() {
-        boolean overlay = Settings.canDrawOverlays(this);
-        boolean svc = OverlayService.running;
-        boolean ble = BleService.running;
-        String conn = BleService.advState;
-        String phone = BleService.phoneMacText();
-
-        setDot(ROW_PERM, overlay ? C_GREEN : C_RED);
-        boolean loc = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION);
-        if (overlay && loc) {
-            rowValues[ROW_PERM].setText("悬浮窗已授予 · 定位已授予");
-        } else if (overlay) {
-            rowValues[ROW_PERM].setText("悬浮窗已授予 · 缺定位（点扫描时会弹授权）");
-        } else {
-            rowValues[ROW_PERM].setText("未授予（需 ADB / 设置里允许悬浮窗）");
-        }
-
-        setDot(ROW_OVERLAY, svc ? C_GREEN : 0xFF4B5563);
-        rowValues[ROW_OVERLAY].setText(svc ? "运行中" : "已停止");
-
-        setDot(ROW_BLE, ble ? C_GREEN : 0xFF4B5563);
-        rowValues[ROW_BLE].setText(ble ? "运行中" : "已停止");
-
-        int connColor = 0xFF4B5563;
-        if (conn != null) {
-            if (conn.contains("已连接")) connColor = C_GREEN;
-            else if (conn.contains("扫描") || conn.contains("连接中") || conn.contains("发现")) connColor = C_PRIMARY;
-            else if (conn.contains("重试") || conn.contains("失败") || conn.contains("超时") || conn.contains("未发现")) connColor = C_AMBER;
-        }
-        setDot(ROW_CONN, connColor);
-        rowValues[ROW_CONN].setText(conn == null || conn.isEmpty() ? "未启动" : conn);
-
-        setDot(ROW_PHONE, phone.equals("未配置") ? C_AMBER : C_PRIMARY);
-        rowValues[ROW_PHONE].setText(phone + (phone.equals("未配置") ? "（点上方按钮扫描）" : " · 地址会变，无需手填"));
-
-        int off = OverlayService.getOffsetMs();
-        setDot(ROW_OFFSET, off == 0 ? 0xFF4B5563 : C_PRIMARY);
-        rowValues[ROW_OFFSET].setText(off == 0
-                ? "已同步（词慢点「提前」· 词快点「延后」；长按±2s）"
-                : String.format(java.util.Locale.US, "%s%.2fs · 补偿「%s」（点按±0.5s 长按±2s）",
-                        off > 0 ? "提前 " : "延后 ", Math.abs(off) / 1000f,
-                        off > 0 ? "词晚于声" : "词早于声"));
-
-        String al = OverlayService.getAlign();
-        setDot(ROW_ALIGN, C_PRIMARY);
-        rowValues[ROW_ALIGN].setText("left".equals(al) ? "居中左" : "right".equals(al) ? "居中右" : "居中");
-
-        String col = OverlayService.getColor();
-        setDot(ROW_COLOR, C_PRIMARY);
-        rowValues[ROW_COLOR].setText("white".equals(col) ? "白" : "black".equals(col) ? "黑"
-                : "blue".equals(col) ? "蓝" : "green".equals(col) ? "绿"
-                : "amber".equals(col) ? "琥珀" : "粉");
-
-        btnService.setText(svc ? "2 · 停止歌词悬浮" : "2 · 启动歌词悬浮");
-    }
-
-    /* ---------------- 扫描发现手机 ---------------- */
 
     private boolean hasPermission(String p) {
         return checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
@@ -654,33 +413,12 @@ public class MainActivity extends Activity {
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
             adapter.getBluetoothLeScanner().startScan(filters, settings, scanCb);
             scanning = true;
-            showHint("请确保手机端推送服务已启动");
-            startScanCountdown();
+            showHint("扫描中… 请确认手机端推送服务已启动");
             ui.postDelayed(this::showScanResult, SCAN_MS);
         } catch (Exception e) {
             scanning = false;
             showHint("扫描发起失败: " + e);
         }
-    }
-
-    /** 扫描倒计时：按钮文字逐秒更新（10→0），结束自动恢复 */
-    private void startScanCountdown() {
-        final long deadline = System.currentTimeMillis() + SCAN_MS;
-        ui.postDelayed(new Runnable() {
-            @Override public void run() {
-                if (!scanning) { btnScan.setText("重新扫描"); return; }
-                long remain = Math.max(0, deadline - System.currentTimeMillis());
-                int foundN = found.size();
-                btnScan.setText("扫描中… " + ((remain + 999) / 1000) + "s"
-                        + (foundN > 0 ? " · 已发现 " + foundN : ""));
-                if (remain > 0) ui.postDelayed(this, 250);
-            }
-        }, 100);
-    }
-
-    private void showHint(String s) {
-        tvScanHint.setVisibility(View.VISIBLE);
-        tvScanHint.setText(s);
     }
 
     private void showScanResult() {
@@ -692,50 +430,45 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {}
         scanning = false;
-        btnScan.setText("重新扫描");
-
         if (found.isEmpty()) {
-            showHint("未发现 IcarLyrics 手机。请确认：手机端推送服务已启动、手机蓝牙开启、距离够近。");
+            showHint("未发现 IcarLyrics 手机。请确认手机端推送服务已启动、蓝牙开启。");
             return;
         }
-        tvScanHint.setVisibility(View.GONE);
-        String[] names = new String[found.size()];
-        for (int i = 0; i < found.size(); i++) {
-            ScanResult r = found.get(i);
+        showPhonePicker();
+    }
+
+    /** 规范 §5.5：Activity 根层局部信息弹窗，不用系统 Dialog/Toast */
+    private void showPhonePicker() {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        int pad = getResources().getDimensionPixelSize(R.dimen.icar_dialog_pad);
+        body.setPadding(pad, pad, pad, pad);
+        for (ScanResult r : found) {
             String n = r.getScanRecord() == null ? null : r.getScanRecord().getDeviceName();
             if (n == null || n.isEmpty()) {
                 try { n = r.getDevice().getName(); } catch (SecurityException ignored) {}
             }
-            names[i] = (n == null || n.isEmpty() ? "未知设备" : n)
-                    + "\n" + r.getDevice().getAddress() + " · 信号 " + r.getRssi();
+            final String mac = r.getDevice().getAddress();
+            String title = (n == null || n.isEmpty() ? "未知设备" : n);
+            String desc = mac + " · 信号 " + r.getRssi();
+            body.addView(UiKit.actionCard(this, title, desc, () -> {
+                BleService.phoneMac = mac;
+                dismissLocalDialog();
+                restartBle();
+            }));
         }
-        new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
-                android.R.style.Theme_Material_Dialog))
-                .setTitle("选择手机")
-                .setItems(names, (d, which) -> {
-                    String mac = found.get(which).getDevice().getAddress();
-                    BleService.phoneMac = mac;
-                    refreshStatus();
-                    restartBle();
-                })
-                .setNegativeButton("取消", null)
-                .show();
+        showLocalDialog("选择手机", body);
     }
 
-    /** 选择手机后重启 BLE 服务立即生效 */
     private void restartBle() {
-        try {
-            stopService(new Intent(this, BleService.class));
-        } catch (Exception ignored) {}
+        try { stopService(new Intent(this, BleService.class)); } catch (Exception ignored) {}
         if (OverlayService.running || Settings.canDrawOverlays(this)) {
             try {
-                if (!OverlayService.running) {
-                    startService(new Intent(this, OverlayService.class));
-                }
+                if (!OverlayService.running) startService(new Intent(this, OverlayService.class));
                 startForegroundService(new Intent(this, BleService.class));
             } catch (Exception ignored) {}
         }
-        ui.postDelayed(this::refreshStatus, 800);
+        ui.postDelayed(() -> showPage(page), 600);
     }
 
     private void toggleService() {
@@ -743,83 +476,151 @@ public class MainActivity extends Activity {
             OverlayService.setAutoStart(false);
             stopService(new Intent(this, OverlayService.class));
             stopService(new Intent(this, BleService.class));
+            showHint("已停止歌词悬浮");
         } else {
             if (!Settings.canDrawOverlays(this)) {
-                showHint("请先用 ADB 命令授予悬浮窗权限（见下方帮助）");
+                showHint("请先授予悬浮窗权限（见「关于」ADB 帮助）");
                 return;
             }
             OverlayService.setAutoStart(true);
             startService(new Intent(this, OverlayService.class));
-            startService(new Intent(this, BleService.class));
+            try { startForegroundService(new Intent(this, BleService.class)); } catch (Exception ignored) {}
+            showHint("已启动歌词悬浮");
         }
-        ui.postDelayed(this::refreshStatus, 300);
-        ui.postDelayed(this::refreshStatus, 1500);
+        ui.postDelayed(() -> showPage(page), 300);
+        ui.postDelayed(() -> showPage(page), 1500);
     }
 
-    /* ---------------- 下载 / 镜像 ---------------- */
+    /* ---------------- 局部弹窗 / 提示 ---------------- */
+
+    private TextView hintView;
+
+    private void showHint(String s) {
+        if (hintView == null) {
+            hintView = new TextView(this);
+            hintView.setTextColor(UiKit.color(this, R.color.icar_text_primary));
+            hintView.setTextSize(TypedValuePx(this, R.dimen.icar_body2));
+            hintView.setBackgroundResource(R.drawable.icar_dialog_panel);
+            int p = UiKit.dpI(this, 24);
+            hintView.setPadding(p, p, p, p);
+            hintView.setGravity(Gravity.CENTER);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM);
+            lp.bottomMargin = UiKit.dpI(this, 48);
+            lp.leftMargin = UiKit.dpI(this, 48);
+            lp.rightMargin = UiKit.dpI(this, 48);
+            root.addView(hintView, lp);
+        }
+        hintView.setText(s);
+        hintView.setVisibility(View.VISIBLE);
+        ui.removeCallbacks(hideHint);
+        ui.postDelayed(hideHint, 3200);
+    }
+
+    private final Runnable hideHint = () -> {
+        if (hintView != null) hintView.setVisibility(View.GONE);
+    };
+
+    private void showLocalDialog(String title, View body) {
+        dismissLocalDialog();
+        dialogHost.setVisibility(View.VISIBLE);
+        dialogHost.removeAllViews();
+
+        View mask = new View(this);
+        mask.setBackgroundColor(UiKit.color(this, R.color.icar_dialog_mask));
+        mask.setOnClickListener(v -> dismissLocalDialog());
+        dialogHost.addView(mask, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackgroundResource(R.drawable.icar_dialog_panel);
+        int pad = getResources().getDimensionPixelSize(R.dimen.icar_dialog_pad);
+        panel.setPadding(pad, pad, pad, pad);
+
+        TextView t = UiKit.body1(this, title);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        panel.addView(t);
+        View gap = new View(this);
+        panel.addView(gap, new LinearLayout.LayoutParams(1, UiKit.dpI(this, 20)));
+        ScrollView sc = new ScrollView(this);
+        sc.addView(body);
+        panel.addView(sc, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, UiKit.dpI(this, 360)));
+
+        TextView close = UiKit.body2(this, "关闭");
+        close.setGravity(Gravity.CENTER);
+        close.setTextColor(ThemeAccent.onAccentTextColor(ThemeAccent.accentColor()));
+        GradientDrawable btnBg = new GradientDrawable();
+        btnBg.setCornerRadius(UiKit.dp(this, 14));
+        btnBg.setColor(ThemeAccent.accentColor());
+        close.setBackground(btnBg);
+        int bh = getResources().getDimensionPixelSize(R.dimen.icar_dialog_btn_h);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, bh);
+        blp.topMargin = UiKit.dpI(this, 24);
+        close.setLayoutParams(blp);
+        close.setOnClickListener(v -> dismissLocalDialog());
+        panel.addView(close);
+
+        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(
+                getResources().getDimensionPixelSize(R.dimen.icar_dialog_width),
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        dialogHost.addView(panel, plp);
+    }
+
+    private void dismissLocalDialog() {
+        dialogHost.removeAllViews();
+        dialogHost.setVisibility(View.GONE);
+    }
+
+    /* ---------------- 下载镜像 ---------------- */
 
     private static final String PHONE_APK_URL =
             "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Phone.apk";
-    private static final String RELEASE_PAGE =
-            "https://github.com/deku772/Icar03/releases/latest";
-    /** 国内加速前缀（可手动选用） */
+    private static final String CAR_APK_URL =
+            "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk";
     private static final String MIRROR_PREFIX = "https://ghfast.top/";
 
-    private static String withMirror(String url, boolean mirror) {
-        return mirror ? MIRROR_PREFIX + url : url;
-    }
-
-    /** 弹出：官方直链 / 国内镜像（二级，默认折叠说明） */
     private void showMirrorDownloadDialog() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(10), dp(20), dp(8));
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        int pad = getResources().getDimensionPixelSize(R.dimen.icar_dialog_pad);
+        body.setPadding(pad, pad, pad, pad);
 
-        TextView tip = new TextView(this);
-        tip.setText("下载最新 Release APK\n（车机端 / 手机端）\n国内网络可选镜像加速");
-        tip.setTextColor(C_TEXT_DIM);
-        tip.setTextSize(14);
+        TextView tip = UiKit.caption2(this, "下载最新 Release APK（车机 / 手机）。国内网络可选用镜像加速。");
         tip.setGravity(Gravity.CENTER);
-        tip.setLineSpacing(dp(3), 1f);
-        root.addView(tip);
+        body.addView(tip);
 
         final boolean[] useMirror = {false};
-        final CheckBox cb = new CheckBox(this);
+        CheckBox cb = new CheckBox(this);
         cb.setText("使用国内镜像（ghfast.top）");
-        cb.setTextColor(C_TEXT_DIM);
-        cb.setTextSize(13);
-        cb.setOnCheckedChangeListener((bv, checked) -> useMirror[0] = checked);
-        root.addView(cb);
+        cb.setTextColor(UiKit.color(this, R.color.icar_text_secondary));
+        body.addView(cb);
 
-        final ImageView qrCar = new ImageView(this);
-        final ImageView qrPhone = new ImageView(this);
+        ImageView qrCar = new ImageView(this);
+        ImageView qrPhone = new ImageView(this);
+        int qs = UiKit.px(this, R.dimen.icar_qr_size);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_HORIZONTAL);
-        row.addView(qrCar, new LinearLayout.LayoutParams(dp(120), dp(120)));
-        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(dp(120), dp(120));
-        plp.leftMargin = dp(12);
+        row.addView(qrCar, new LinearLayout.LayoutParams(qs, qs));
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(qs, qs);
+        plp.leftMargin = UiKit.dpI(this, 20);
         qrPhone.setLayoutParams(plp);
         row.addView(qrPhone);
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        rlp.topMargin = dp(8);
-        row.setLayoutParams(rlp);
-        root.addView(row);
-
-        TextView lab = new TextView(this);
-        lab.setText("左：车机端  ·  右：手机端");
-        lab.setTextColor(C_TEXT_DIM);
-        lab.setTextSize(12);
+        body.addView(row);
+        TextView lab = UiKit.caption2(this, "左：车机端 · 右：手机端");
         lab.setGravity(Gravity.CENTER);
-        root.addView(lab);
+        body.addView(lab);
 
-        final Runnable[] render = new Runnable[1];
+        Runnable[] render = new Runnable[1];
         render[0] = () -> {
             try {
-                qrCar.setImageBitmap(QrEncoder.encode(withMirror(CAR_APK_URL, useMirror[0]), 4));
-                qrPhone.setImageBitmap(QrEncoder.encode(withMirror(PHONE_APK_URL, useMirror[0]), 4));
+                String prefix = useMirror[0] ? MIRROR_PREFIX : "";
+                qrCar.setImageBitmap(QrEncoder.encode(prefix + CAR_APK_URL, 4));
+                qrPhone.setImageBitmap(QrEncoder.encode(prefix + PHONE_APK_URL, 4));
             } catch (Exception ignored) {}
         };
         render[0].run();
@@ -828,24 +629,6 @@ public class MainActivity extends Activity {
             render[0].run();
         });
 
-        new AlertDialog.Builder(new android.view.ContextThemeWrapper(this,
-                android.R.style.Theme_Material_Dialog))
-                .setTitle("下载 APK（可选镜像）")
-                .setView(root)
-                .setNegativeButton("关闭", null)
-                .show();
-    }
-
-    private static final String CAR_APK_URL =
-            "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk";
-
-    @Override
-    protected void onDestroy() {
-        if (installDialog != null && installDialog.isShowing()) installDialog.dismiss();
-        super.onDestroy();
-    }
-
-    private int dp(float v) {
-        return (int) (getResources().getDisplayMetrics().density * v);
+        showLocalDialog("下载 APK（可选镜像）", body);
     }
 }

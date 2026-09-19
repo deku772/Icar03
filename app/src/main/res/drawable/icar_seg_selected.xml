@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 选中块颜色由运行时按 accent 着色；shape 只负责圆角几何。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="@dimen/icar_seg_radius_inner" />
+    <solid android:color="@color/icar_accent" />
+</shape>
