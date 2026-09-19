@@ -414,13 +414,14 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         if (ble.isConnected()) {
             lastBleConnectedTs = System.currentTimeMillis();
             bleEverConnected = true;
+            mon.bleState = "已连接车机，等待推送";
         }
         /* 车机长时间未连：保持前台服务，周期性重启广播，等待车机回来 */
         if (System.currentTimeMillis() - lastBleConnectedTs >= BLE_GIVEUP_MS) {
             try {
                 if (ble != null && !ble.isConnected()) {
                     ble.resumeFromIdle();
-                    updateNotification("等待车机连接…（服务保持运行，可放歌或打开车机端）");
+                    updateNotification("等待车机连接…（服务保持运行）");
                 }
             } catch (Throwable ignored) {}
             lastBleConnectedTs = System.currentTimeMillis() - BLE_GIVEUP_MS / 2;
@@ -428,13 +429,19 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         boolean playing = lastPlaying;
         if (playing) {
             lastPlayingTs = System.currentTimeMillis();
-            if (ble.isIdlePaused()) ble.resumeFromIdle();
+            if (ble != null && ble.isIdlePaused() && !ble.isConnected()) {
+                ble.resumeFromIdle();
+                updateNotification("已恢复广播: " + (curKey.isEmpty() ? "等待播放" : curKey.split("\\|", 2)[0]));
+            }
             bleWasPlaying = true;
+            return;
+        }
+        /* 已与车机保持连接时不因“未播放”立刻踢链路，避免状态来回跳 */
+        if (ble.isConnected() && System.currentTimeMillis() - lastPlayingTs < IDLE_PAUSE_MS * 4) {
             return;
         }
         if (ble.isIdlePaused()) return;
         if (System.currentTimeMillis() - lastPlayingTs < IDLE_PAUSE_MS) return;
-        /* 连续未播放超时：停广播并断开车机，手机不再维持无线链路 */
         ble.pauseForIdle();
         stopProgressTask();
         if (bleWasPlaying || !curKey.isEmpty()) {

@@ -248,6 +248,8 @@ final class CarAdbSetup {
         runCmd(adb, cb, "pm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
         runCmd(adb, cb, "cmd notification allow_listener com.icarme.lyrics/.CarMediaListener");
         runCmd(adb, cb, "appops set com.icarme.lyrics android:get_usage_stats allow");
+        runCmd(adb, cb, "settings put secure enabled_accessibility_services com.icarme.lyrics/.IcarA11yService");
+        runCmd(adb, cb, "settings put secure accessibility_enabled 1");
         runCmd(adb, cb, "am broadcast -a com.icarme.lyrics.START -n com.icarme.lyrics/.AdbReceiver");
         runCmd(adb, cb, "am start -n com.icarme.lyrics/.MainActivity");
     }

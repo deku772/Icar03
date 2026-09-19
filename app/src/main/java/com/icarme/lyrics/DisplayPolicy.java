@@ -39,6 +39,21 @@ public final class DisplayPolicy {
     private static volatile int tbtGuide = 0;
     private static volatile int windowMode = -1;
     private static volatile int acPage = -1;
+    /** auto=按场景避让；always=始终显示壁纸歌词；car=贴近原车（地图/TBT 隐藏） */
+    private static volatile String displayMode = "auto";
+
+    public static final String MODE_AUTO = "auto";
+    public static final String MODE_ALWAYS = "always";
+    public static final String MODE_CAR = "car";
+
+    public static void setDisplayMode(String mode) {
+        if (MODE_AUTO.equals(mode) || MODE_ALWAYS.equals(mode) || MODE_CAR.equals(mode)) {
+            displayMode = mode;
+            Log.i(TAG, "displayMode=" + mode);
+        }
+    }
+
+    public static String displayMode() { return displayMode; }
 
     private static ContentResolver resolver;
     private static ContentObserver observer;
@@ -104,6 +119,15 @@ public final class DisplayPolicy {
         acPage = readSecureInt(KEY_AC_PAGE, -1);
         Log.i(TAG, "attach tbt=" + tbtShow + "/" + tbtGuide
                 + " window=" + windowMode + " ac=" + acPage);
+    }
+
+    /** 供 OverlayService 在 pushSafeArea 前强制刷键（含只读 Global） */
+    public static void refreshAll(Context ctx) {
+        if (resolver == null) resolver = ctx.getContentResolver();
+        tbtShow = readSecureInt(KEY_TBT_SHOW, 0);
+        tbtGuide = readSecureInt(KEY_TBT_GUIDE, 0);
+        windowMode = readSecureInt(KEY_WINDOW_MODE, -1);
+        acPage = readSecureInt(KEY_AC_PAGE, -1);
     }
 
     private static void register(android.net.Uri uri) {
@@ -199,10 +223,17 @@ public final class DisplayPolicy {
             mapInset = Math.max(mapInset, Math.round(140 * sy));
         }
 
-        // 地图前台：与原版一致——歌词隐身，不压导航画面
-        if (SceneDetector.MODE_MAP.equals(sceneMode)) {
-            Log.i(TAG, "map foreground → withhold lyrics");
+        // 地图/TBT 前台：
+        //  car / auto → 歌词隐身（与原版一致，优先不挡导航）
+        //  always → 用户强制显示时仍给底部安全区，不整屏盖
+        boolean mapLike = SceneDetector.MODE_MAP.equals(sceneMode) || tbtShow == 1;
+        if (mapLike && !MODE_ALWAYS.equals(displayMode)) {
+            Log.i(TAG, "map/tbt → withhold lyrics scene=" + sceneMode
+                    + " tbt=" + tbtShow + " mode=" + displayMode);
             return new SafeBox(0, 0, w, 0, true, position, mapInset);
+        }
+        if (mapLike) {
+            return bottomCompact(w, h, sy, mapInset, position);
         }
 
         // 优先：当前左右侧的壁纸安全窗

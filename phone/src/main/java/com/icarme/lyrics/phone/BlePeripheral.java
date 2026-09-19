@@ -85,7 +85,8 @@ class BlePeripheral {
     String getState() { return state; }
 
     boolean isConnected() {
-        return gattServer != null && !subscribedDevs.isEmpty();
+        /* 车机已 GATT 连上但尚未写 CCCD 时，也算“已连接”，避免手机端一直显示等待连接 */
+        return gattServer != null && (!subscribedDevs.isEmpty() || !connectedDevs.isEmpty());
     }
 
     boolean hasAnyClient() {
@@ -176,7 +177,11 @@ class BlePeripheral {
         if (gattServer == null || !idlePaused) return;
         idlePaused = false;
         startAdvertising();
-        setState("idle", "已恢复广播，等待车机连接…");
+        if (isConnected()) {
+            setState("connected", "已连接车机");
+        } else {
+            setState("idle", "已恢复广播，等待车机连接…");
+        }
     }
 
     private void addCccd(BluetoothGattCharacteristic ch) {

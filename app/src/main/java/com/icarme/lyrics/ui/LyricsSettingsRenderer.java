@@ -96,6 +96,26 @@ public final class LyricsSettingsRenderer {
                 }
         }));
 
+        box.addView(UiKit.groupTitle(c, "显示模式"));
+        box.addView(UiKit.groupDesc(c, "自动：地图/TBT 时隐身避让；始终显示：不因地图隐藏；原车规则：贴近 03 歌词避让。"));
+        String dm = OverlayService.getDisplayMode();
+        int dmIdx = "always".equals(dm) ? 1 : "car".equals(dm) ? 2 : 0;
+        box.addView(UiKit.segmented(c, new String[]{"自动", "始终显示", "原车规则"}, dmIdx,
+                new UiKit.Action[]{
+                        () -> {
+                            OverlayService.setDisplayMode("auto");
+                            host.refreshChrome();
+                        },
+                        () -> {
+                            OverlayService.setDisplayMode("always");
+                            host.refreshChrome();
+                        },
+                        () -> {
+                            OverlayService.setDisplayMode("car");
+                            host.refreshChrome();
+                        }
+                }));
+
         box.addView(UiKit.groupTitle(c, "歌词位置"));
         box.addView(UiKit.groupDesc(c, "壁纸模式下歌词安全区靠左或靠右；系统组件/TBT 卡出现时自动避让，空间不足则隐藏。"));
         String wallPos = OverlayService.getWallpaperPosition();
@@ -179,12 +199,22 @@ public final class LyricsSettingsRenderer {
         box.addView(UiKit.infoRow(c, "手机地址", phone));
 
         Integer sceneTop = com.icarme.lyrics.IcarA11yService.leftSceneTopPx;
-        box.addView(UiKit.infoRow(c, "地图卡避让",
+        box.addView(UiKit.infoRow(c, "地图/TBT 避让",
                 com.icarme.lyrics.DisplayPolicy.tbtShow() == 1
-                        ? ("TBT 显示中 · guide=" + com.icarme.lyrics.DisplayPolicy.tbtGuide())
-                        : "无 TBT 卡"));
-        box.addView(UiKit.infoRow(c, "系统组件层",
-                sceneTop != null ? ("scene top=" + sceneTop + "px") : "无障碍未授权或未探测到"));
+                        ? ("TBT 显示中 · guide=" + com.icarme.lyrics.DisplayPolicy.tbtGuide()
+                        + " · 模式=" + OverlayService.getDisplayMode())
+                        : ("无 TBT 卡 · 模式=" + OverlayService.getDisplayMode())));
+        box.addView(UiKit.infoRow(c, "系统组件层", OverlayService.a11yStatusText()));
+        box.addView(UiKit.actionCard(c, "打开系统无障碍设置",
+                "授权「IcarLyrics」后，才能读取座椅/雨刮等场景层几何。",
+                () -> {
+                    try {
+                        android.content.Intent i = new android.content.Intent(
+                                android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                        i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        c.startActivity(i);
+                    } catch (Exception ignored) {}
+                }));
 
         box.addView(UiKit.groupTitle(c, "操作"));
         box.addView(UiKit.actionCard(c,

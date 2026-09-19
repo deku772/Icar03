@@ -143,7 +143,7 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         showPage(page);
     }
 
-    /** 规范 §3：标准右侧浮窗几何；非车机大屏回退全屏。 */
+    /** 规范 §3：标准右侧浮窗几何；避免整屏盖住原车界面。 */
     private void applyStandardWindow() {
         DisplayMetricsHolder dmh = DisplayMetricsHolder.of(this);
         if (!dmh.carLike) return;
@@ -155,11 +155,34 @@ public class MainActivity extends Activity implements LyricsSettingsRenderer.Hos
         lp.y = dmh.y;
         lp.width = dmh.w;
         lp.height = dmh.h;
+        lp.alpha = 1f;
         w.setAttributes(lp);
-        w.setWindowAnimations(R.style.IcarWindowAnim);
-        // 启动器 freeform 可能随后改写 bounds，再请求一次目标几何
         w.setLayout(dmh.w, dmh.h);
+        w.setWindowAnimations(R.style.IcarWindowAnim);
+        // 启动器 freeform/fullscreen 会在稍后改写 bounds，多次重申目标几何
+        ui.removeCallbacks(applyWindowRetry);
+        ui.postDelayed(applyWindowRetry, 80);
+        ui.postDelayed(applyWindowRetry, 320);
+        ui.postDelayed(applyWindowRetry, 900);
     }
+
+    private final Runnable applyWindowRetry = new Runnable() {
+        @Override public void run() {
+            if (isFinishing()) return;
+            DisplayMetricsHolder dmh = DisplayMetricsHolder.of(MainActivity.this);
+            if (!dmh.carLike) return;
+            try {
+                WindowManager.LayoutParams lp = getWindow().getAttributes();
+                lp.gravity = Gravity.TOP | Gravity.START;
+                lp.x = dmh.x;
+                lp.y = dmh.y;
+                lp.width = dmh.w;
+                lp.height = dmh.h;
+                getWindow().setAttributes(lp);
+                getWindow().setLayout(dmh.w, dmh.h);
+            } catch (Throwable ignored) {}
+        }
+    };
 
     private static final class DisplayMetricsHolder {
         boolean carLike;

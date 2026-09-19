@@ -200,6 +200,33 @@ public class OverlayService extends Service {
         if (instance != null) instance.ui.post(instance::pushSafeArea);
     }
 
+    private static final String KEY_DISPLAY_MODE = "lyrics_display_mode";
+
+    /** auto | always | car —— 自由选择避让策略 */
+    public static String getDisplayMode() {
+        String m = IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_DISPLAY_MODE, com.icarme.lyrics.DisplayPolicy.MODE_AUTO);
+        com.icarme.lyrics.DisplayPolicy.setDisplayMode(m);
+        return m;
+    }
+
+    public static void setDisplayMode(String mode) {
+        IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_DISPLAY_MODE, mode).apply();
+        com.icarme.lyrics.DisplayPolicy.setDisplayMode(mode);
+        if (instance != null) instance.ui.post(instance::pushSafeArea);
+    }
+
+    public static String a11yStatusText() {
+        String raw = android.provider.Settings.Secure.getString(
+                IcarApp.get().getContentResolver(), "enabled_accessibility_services");
+        boolean enabled = raw != null && raw.contains("com.icarme.lyrics/.IcarA11yService");
+        Integer top = IcarA11yService.leftSceneTopPx;
+        if (!enabled) return "未授权（可点下方开启）";
+        if (top != null) return "已授权 · scene top=" + top + "px";
+        return "已授权 · 暂未探测到场景层节点";
+    }
+
     public static boolean isDebug() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_DEBUG, false);
@@ -231,6 +258,7 @@ public class OverlayService extends Service {
         running = true;
         ui = new Handler(Looper.getMainLooper());
         DisplayPolicy.attach(this, () -> ui.post(this::pushSafeArea));
+        getDisplayMode();
         startForeground();
         ui.post(this::showOverlay);
         startLocalTimeline();
@@ -283,7 +311,7 @@ public class OverlayService extends Service {
 
     private void pollScene() {
         long now = System.currentTimeMillis();
-        if (now - lastScenePoll < 2000) return;
+        if (now - lastScenePoll < 1000) return;
         lastScenePoll = now;
         String m = scene.poll(this);
         if (!m.equals(sceneMode)) {
@@ -297,10 +325,13 @@ public class OverlayService extends Service {
     void pushSafeArea() {
         String pos = getWallpaperPosition();
         Integer sceneTop = IcarA11yService.leftSceneTopPx;
+        // TBT 显示时即使 usage 检测不到地图包，也按地图风险处理
+        DisplayPolicy.refreshAll(this);
         DisplayPolicy.SafeBox box =
                 DisplayPolicy.compute(this, sceneMode, pos, sceneTop);
         String sig = sceneMode + "|" + pos + "|" + box.left + "," + box.top + ","
-                + box.width + "," + box.height + "|" + box.withhold + "|" + box.mapInset;
+                + box.width + "," + box.height + "|" + box.withhold + "|" + box.mapInset
+                + "|" + DisplayPolicy.displayMode() + "|" + DisplayPolicy.tbtShow();
         if (sig.equals(lastSafeSig)) return;
         lastSafeSig = sig;
         try {
