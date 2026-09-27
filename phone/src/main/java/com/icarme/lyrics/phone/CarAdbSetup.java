@@ -164,29 +164,42 @@ final class CarAdbSetup {
     }
 
     /**
-     * 下载最新车机 APK：默认国内镜像，慢/失败再回退 GitHub。
+     * 下载最新车机 APK：多镜像测速后择优下载，失败自动换下一个。
      * 固定写到 cache/update/IcarLyrics-Car-push.apk，不会堆积多个包。
      */
     private static java.io.File downloadCarApk(Context ctx, Callback cb) {
         String gh = "https://github.com/deku772/Icar03/releases/latest/download/IcarLyrics-Car.apk";
-        String[] urls = {
-                "https://ghfast.top/" + gh,   /* 默认镜像，国内快 */
-                gh                              /* 镜像失败再回官方 */
-        };
+        String[] candidates = buildMirrorUrls(gh);
+        long[] probe = new long[candidates.length];
+        for (int i = 0; i < candidates.length; i++) {
+            probe[i] = probeUrlMs(candidates[i], cb);
+        }
+        /* 按探测延迟升序；探测失败排最后（仍可尝试下载） */
+        Integer[] order = new Integer[candidates.length];
+        for (int i = 0; i < order.length; i++) order[i] = i;
+        java.util.Arrays.sort(order, (a, b) -> Long.compare(probe[a], probe[b]));
+        StringBuilder rank = new StringBuilder("镜像测速:");
+        for (int idx : order) {
+            rank.append(' ').append(shortLabel(candidates[idx]))
+                    .append(probe[idx] >= Long.MAX_VALUE / 2 ? "=超时" : "=" + probe[idx] + "ms");
+        }
+        cb.onLog(rank.toString());
+
         java.io.File out = new java.io.File(ctx.getCacheDir(), "update/IcarLyrics-Car-push.apk");
         //noinspection ResultOfMethodCallIgnored
         out.getParentFile().mkdirs();
         if (out.exists()) //noinspection ResultOfMethodCallIgnored
             out.delete();
 
-        for (int i = 0; i < urls.length; i++) {
-            String u = urls[i];
-            String label = i == 0 ? "镜像" : "GitHub";
-            cb.onLog("从" + label + "下载…");
+        for (int oi = 0; oi < order.length; oi++) {
+            int i = order[oi];
+            String u = candidates[i];
+            String label = shortLabel(u);
+            boolean official = u.equals(gh);
+            cb.onLog("从 " + label + " 下载…");
             try {
                 java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
-                /* 镜像 20s 连不上就换源；官方放宽 */
-                c.setConnectTimeout(i == 0 ? 12000 : 20000);
+                c.setConnectTimeout(official ? 15000 : 10000);
                 c.setReadTimeout(120000);
                 c.setInstanceFollowRedirects(true);
                 c.setRequestProperty("User-Agent", "IcarLyrics-Updater");
@@ -225,11 +238,70 @@ final class CarAdbSetup {
                 }
                 c.disconnect();
                 if (out.length() > 10000) return out;
+                cb.onLog(label + " 文件过小，换源");
             } catch (Exception e) {
                 cb.onLog(label + " 失败: " + e.getMessage());
             }
         }
         return null;
+    }
+
+    /** 官方 + 多个 GitHub 反代前缀；URL 拼法为 prefix + 完整 GitHub 地址 */
+    private static String[] buildMirrorUrls(String gh) {
+        String[] prefixes = {
+                "https://ghfast.top/",
+                "https://ghproxy.net/",
+                "https://mirror.ghproxy.com/",
+                "https://gh-proxy.com/",
+                "https://ghproxy.cn/",
+                "https://ghps.cc/",
+                "https://hub.gitmirror.com/",
+        };
+        java.util.ArrayList<String> list = new java.util.ArrayList<>();
+        for (String p : prefixes) list.add(p + gh);
+        list.add(gh);
+        return list.toArray(new String[0]);
+    }
+
+    /** 轻量探测：HEAD/首包延迟；失败返回极大值排最后 */
+    private static long probeUrlMs(String url, Callback cb) {
+        long t0 = System.currentTimeMillis();
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(3500);
+            c.setReadTimeout(4000);
+            c.setInstanceFollowRedirects(true);
+            c.setRequestMethod("HEAD");
+            c.setRequestProperty("User-Agent", "IcarLyrics-Updater");
+            try {
+                int code = c.getResponseCode();
+                long dt = System.currentTimeMillis() - t0;
+                /* 2xx/3xx 视为可达 */
+                if (code >= 200 && code < 400) return dt;
+                return Long.MAX_VALUE / 3;
+            } finally {
+                c.disconnect();
+            }
+        } catch (Exception e) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    private static String shortLabel(String url) {
+        if (url == null) return "?";
+        if (url.startsWith("https://github.com/")) return "GitHub";
+        if (url.contains("ghfast.top")) return "ghfast";
+        if (url.contains("ghproxy.net")) return "ghproxy.net";
+        if (url.contains("mirror.ghproxy.com")) return "mirror.ghproxy";
+        if (url.contains("gh-proxy.com")) return "gh-proxy";
+        if (url.contains("ghproxy.cn")) return "ghproxy.cn";
+        if (url.contains("ghps.cc")) return "ghps";
+        if (url.contains("gitmirror.com")) return "gitmirror";
+        try {
+            return new java.net.URL(url).getHost();
+        } catch (Exception e) {
+            return "mirror";
+        }
     }
 
     static void grantOnHost(String host, Callback cb) throws IOException {
