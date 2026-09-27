@@ -1,0 +1,130 @@
+#AOCI-CODE-VOLUME: 1
+
+===D:/Icar03/===
+.gitattributes[FC5T]: F:强制仓库文本以LF检出，使AOCI基线在各平台字节一致 | R:- | A:- | S:Windows默认autocrlf改写行尾会令整树基线Stale
+.gitignore[FC5T]: F:忽略构建产物、本地私密与AOCI宿主配置，避免进入Git与Managed Scope | R:- | A:- | S:.mcp.json含机器绝对路径，提交后其他机器init会静默保留错误路径
+AGENTS.md[SS8S]: F:承载AOCI仓库认知合同：建索引、读Overview、维护Entry与安全停点 | R:code:aoci.txt,code:aoci.meta.txt,code:aoci.code.txt | A:aoci_rules,aoci_overview,aoci_maintain,aoci_update_entry,aoci_report | S:aoci区块由init生成；工具Schema与Guide机器事实优先于本文静态说明
+DESIGN.md[SS7S]: F:车机设置页模式A施工蓝图：视觉token、双栏布局与信息架构 | R:code:app/src/main/java/com/icarme/lyrics/ui/LyricsSettingsRenderer.java,code:app/src/main/java/com/icarme/lyrics/ui/UiKit.java | A:- | S:强调色只读com.mb.provider.theme_key的32/33，其余主题键未确认不做全量宣告
+LICENSE[SS3T]: F:声明项目采用MIT许可 | R:- | A:MIT License | S:-
+README.md[SB8S]: F:说明IcarLyrics手机取词经BLE推送到车机悬浮窗的架构、部署与构建 | R:code:app/build.gradle,code:phone/build.gradle | A:Release稳定名IcarLyrics-Car.apk与IcarLyrics-Phone.apk | S:车机端零公网流量；扫码下载依赖CI每次上传稳定文件名
+build.gradle[FV2T]: F:声明Android应用插件版本 | R:code:app/build.gradle,code:phone/build.gradle | A:- | S:-
+gradle.properties[FC2T]: F:Gradle内存编码与AndroidX构建开关 | R:- | A:- | S:-
+settings.gradle[FV3T]: F:声明多模块工程app与phone及仓库源 | R:code:build.gradle,code:app/build.gradle,code:phone/build.gradle | A:rootProject.name IcarLyrics | S:FAIL_ON_PROJECT_REPOS禁止子工程自声明仓库
+
+===D:/Icar03/.github/workflows/===
+release.yml[FV6T]: F:打v* tag时构建车机与手机Release APK并上传GitHub Release | R:code:app/build.gradle,code:phone/build.gradle | A:IcarLyrics-Car.apk,IcarLyrics-Phone.apk稳定下载名 | S:车机扫码分发依赖稳定文件名，改名会断下载链路
+
+===D:/Icar03/app/===
+build.gradle[FV8M]: F:配置车机端模块：SDK28、固定签名、ZXing依赖并内嵌手机APK | R:code:phone/build.gradle,code:signing/README.md | A:applicationId com.icarme.lyrics,versionName | S:targetSdk故意保持28与原厂对齐；双端共用icarlyrics.keystore避免覆盖安装签名不一致；embedPhoneApk拷贝phone APK进assets供热点分发
+proguard-rules.pro[FC2T]: F:声明车机端无需混淆规则 | R:- | A:- | S:release默认关闭minify，勿误开混淆破坏WebView与反射路径
+
+===D:/Icar03/app/src/main/===
+AndroidManifest.xml[FI9S]: F:声明车机端权限、组件与自启/ADB入口 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java,code:app/src/main/java/com/icarme/lyrics/BleService.java,code:app/src/main/java/com/icarme/lyrics/CarMediaListener.java,code:app/src/main/java/com/icarme/lyrics/AdbReceiver.java | A:com.icarme.lyrics.START/STOP/SET_PHONE,BOOT_COMPLETED,MY_PACKAGE_REPLACED | S:悬浮窗、定位、通知监听与usage stats均需ADB预授权；Android9 BLE扫描依赖ACCESS_FINE_LOCATION
+
+===D:/Icar03/app/src/main/assets/===
+lyrics_overlay.html[EU9M]: F:WebView歌词渲染层：行级同步LRC界面与IcarJS命令桥 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java,code:app/src/main/java/com/icarme/lyrics/DisplayPolicy.java | A:IcarJS.onLyrics/onProgress/onCmd;setTheme/setOffset/setAlign/setSafeArea/setScene/setColor | S:偏移只加在nowMs避免双计；防回跳280ms；旧WebView勿用CSS inset简写；safe-withhold隐藏#stage
+
+===D:/Icar03/app/src/main/java/com/icarme/lyrics/===
+AdbHelper.java[ES4T]: F:提供首装ADB授权与启停命令的静态帮助文案 | R:code:app/src/main/java/com/icarme/lyrics/AdbReceiver.java,code:app/src/main/java/com/icarme/lyrics/CarMediaListener.java | A:helpText() | S:无障碍授权仅作几何增强可选，歌词主链路不依赖无障碍
+AdbReceiver.java[ES6T]: F:接收ADB广播直控双服务启停并持久化手机MAC | R:code:app/src/main/java/com/icarme/lyrics/BleService.java,code:app/src/main/java/com/icarme/lyrics/OverlayService.java | A:com.icarme.lyrics.START,STOP,SET_PHONE | S:无悬浮窗权限时START拒绝启动；MAC须匹配(?i)[0-9a-f]{2}(:[0-9a-f]{2}){5}并大写存储
+ApkHttpServer.java[IB7S]: F:车机本地HTTP分发内嵌手机APK与中文落地页 | R:code:app/src/main/java/com/icarme/lyrics/MainActivity.java | A:start/stop/isRunning,downloadUrl,GET / 与 /a.apk | S:固定端口18765；优先热点网段192.168.43/49/137；空APK负载启动失败
+ApkInstaller.java[IV7S]: F:从GitHub或镜像下载车机APK并用PackageInstaller安装 | R:code:app/src/main/java/com/icarme/lyrics/MainActivity.java | A:downloadAndInstall,Callback.onLog/onDone | S:需REQUEST_INSTALL_PACKAGES否则跳未知来源设置并失败关闭；下载小于10000字节拒绝；PackageInstaller失败回退ACTION_VIEW
+BleService.java[IB9L]: F:车机BLE GATT中心：按服务UUID扫描连接手机并订阅歌词/进度/指令 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java,code:app/src/main/java/com/icarme/lyrics/Reassembler.java,code:app/src/main/java/com/icarme/lyrics/AdbReceiver.java | A:SVC_LYRICS/CH_LYRICS/CH_PROGRESS/CH_CMD,OverlayService.push | S:定位权限缺失扫描失败关闭；手机用RPA故MAC仅诊断；MTU固定247避开517栈缺陷；角色对调手机为外设
+BootReceiver.java[ER5T]: F:开机或覆盖安装后自动拉起悬浮与BLE双服务 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java,code:app/src/main/java/com/icarme/lyrics/BleService.java | A:BOOT_COMPLETED,MY_PACKAGE_REPLACED | S:自启与悬浮窗双门闩失败关闭；手动停止后isAutoStart为false不再自启
+CarLyricsFetcher.java[IB8M]: F:联网模式三源取词：lrclib到网易云到QQ音乐回退并内存缓存 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java,code:app/src/main/assets/lyrics_overlay.html | A:fetch(track,artist,durationSec) -> Result{lrc,tlyric,source} | S:仅接受含[mm:ss]时间轴歌词；网易与QQ需Referer；空曲名失败关闭；缓存无上限仅内存
+CarMediaListener.java[IB6T]: F:空通知监听服务，只为取得MediaSession活跃会话以读蓝牙播放进度 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java,code:app/src/main/java/com/icarme/lyrics/AdbHelper.java | A:isConnected(),ComponentName .CarMediaListener | S:无ADB allow_listener授权则读不到com.android.bluetooth进度，歌词相对发声滞后
+DisplayPolicy.java[DB9M]: F:按车机设置键与场景计算歌词SafeBox，优先缩安全区而非整段隐藏 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java,code:app/src/main/java/com/icarme/lyrics/SceneDetector.java,code:app/src/main/assets/lyrics_overlay.html | A:compute -> SafeBox,setDisplayMode,tbtShow/tbtGuide/windowMode,mapInsetPx | S:auto仅隐藏地图场景；car隐藏地图或导航；参考几何1920x1080；Secure读失败回落Global；失败软保底顶条仍显示
+HotspotInfo.java[IH8M]: F:读取或生成车机热点SSID密码供Wi-Fi二维码合并 | R:code:app/src/main/java/com/icarme/lyrics/QrEncoder.java,code:app/src/main/java/com/icarme/lyrics/MainActivity.java | A:wifiQrPayload,SharedPreferences icarlyrics hotspot_ssid/pass | S:反射一律Throwable失败软化；腾讯方案AP常读不到；密码null视为开放网络
+IcarA11yService.java[EU6S]: F:可选无障碍探针读取launcher场景几何供歌词避让 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java | A:leftSceneTopPx,adasLeftPx | S:只扫com.mengbo.launcher3；近全屏节点拒绝以免压垮安全区；非事件驱动节流扫描
+IcarApp.java[EG4T]: F:Application单例提供全局Context | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java | A:IcarApp.get() | S:必须无副作用；OverlayService静态prefs依赖它，onCreate前get会NPE
+MainActivity.java[AU9L]: F:车机设置壳层：左导航右内容，持有窗口主题对话框与BLE扫描服务动作 | R:code:app/src/main/java/com/icarme/lyrics/ui/LyricsSettingsRenderer.java,code:app/src/main/java/com/icarme/lyrics/OverlayService.java,code:app/src/main/java/com/icarme/lyrics/BleService.java | A:Host回调onScanPhones/onToggleService等,BleService.SVC_LYRICS扫描 | S:启动需canDrawOverlays；禁止系统Dialog/Toast；窗口保持MATCH_PARENT勿强制bounds
+OverlayService.java[AB9L]: F:悬浮窗宿主：WebView加载歌词页并桥接BLE与在线歌词到IcarJS | R:code:app/src/main/assets/lyrics_overlay.html,code:app/src/main/java/com/icarme/lyrics/SceneDetector.java,code:app/src/main/java/com/icarme/lyrics/DisplayPolicy.java,code:app/src/main/java/com/icarme/lyrics/BleService.java | A:push(json),IcarJS命令,prefs icarlyrics | S:仅信任PLAYING蓝牙MediaSession；僵尸快照超10s或偏差2.5s回退BLE；通知监听SecurityException则localReady=false
+QrEncoder.java[KU4T]: F:ZXing二维码位图生成 | R:code:app/src/main/java/com/icarme/lyrics/HotspotInfo.java | A:encode(text,scale) -> Bitmap | S:编码失败抛IllegalStateException由调用方吞掉；scale必须大于等于1
+Reassembler.java[KN7T]: F:BLE歌词分片重组：序号槽缓冲容忍乱序重复丢包 | R:code:app/src/main/java/com/icarme/lyrics/BleService.java | A:feed(byte[]) -> Frame,reset,toText | S:整帧拼完再UTF-8解码禁止分片解码；4s超时丢弃不完整帧；同seq重传忽略
+SceneDetector.java[DB7S]: F:前台场景分类壁纸地图设置以驱动悬浮布局 | R:code:app/src/main/java/com/icarme/lyrics/OverlayService.java | A:poll -> MODE_WALLPAPER|MAP|SETTINGS,hasUsagePermission | S:需GET_USAGE_STATS；launcher强制壁纸勿隐藏歌词；未知包归壁纸
+UpdateChecker.java[IN7S]: F:GitHub Releases检查更新并应用内下载安装车机APK | R:code:app/src/main/java/com/icarme/lyrics/ApkInstaller.java | A:checkAsync/checkAndPrompt,CAR_APK_URL | S:非Activity只打开RELEASES页；HTTP大于等于400不更新；isNewer只解析前导数字
+
+===D:/Icar03/app/src/main/java/com/icarme/lyrics/ui/===
+IcarSwitch.java[LU6S]: F:车机风格自绘MBSwitch开关控件 | R:code:app/src/main/java/com/icarme/lyrics/ui/UiKit.java,code:app/src/main/java/com/icarme/lyrics/ui/ThemeAccent.java | A:setChecked/toggle/OnCheckedChangeListener | S:不用SwitchCompat inset；触控约73乘41dp；仅真实变化时回调
+LyricsSettingsRenderer.java[AU8M]: F:设置页纯渲染器：偏好状态映射为View并转发Host动作 | R:code:app/src/main/java/com/icarme/lyrics/MainActivity.java,code:app/src/main/java/com/icarme/lyrics/ui/UiKit.java | A:Host接口,SettingsPages LYRICS|SERVICE|TIP|ABOUT | S:无状态；变更后refreshChrome保滚动；不自启服务；帮助文案来自AdbHelper
+ThemeAccent.java[CU7S]: F:只读厂商强调色theme_key映射紫粉并监听变化 | R:code:app/src/main/java/com/icarme/lyrics/ui/UiKit.java,code:app/src/main/java/com/icarme/lyrics/OverlayService.java | A:accentColor,cssColor,attach/detach | S:绝不写回系统；键读不到默认紫；System到Secure到Global读取
+UiKit.java[LU8M]: F:模式A控件套件：文案层级与卡片分段动作等View构建器 | R:code:app/src/main/java/com/icarme/lyrics/ui/IcarSwitch.java,code:app/src/main/java/com/icarme/lyrics/ui/ThemeAccent.java | A:switchCard/segmented/actionCard/infoRow,body1/body2 | S:px已是目标像素禁止再转dp；分段labels与onSelect等长；强调色变更需refreshChrome重建
+
+===D:/Icar03/app/src/main/res/anim/===
+bottom_in.xml[FU2T]: F:底部面板入场动画150ms自下而上 | R:- | A:- | S:-
+bottom_out.xml[FU2T]: F:底部面板出场动画300ms向下退出 | R:- | A:- | S:-
+
+===D:/Icar03/app/src/main/res/drawable/===
+btn_ghost.xml[FU3T]: F:次级幽灵按钮selector圆角描边背景 | R:- | A:- | S:-
+btn_primary.xml[FU3T]: F:主按钮selector蓝色圆角按下态 | R:- | A:- | S:-
+card_bg.xml[FU3T]: F:设置卡片圆角深色描边背景 | R:- | A:- | S:-
+ic_launcher_foreground.xml[FU3T]: F:启动图标前景歌词行抽象中间焦点色 | R:- | A:- | S:-
+ic_stat_lyrics.xml[FU3T]: F:通知状态栏白色线条歌词图标 | R:- | A:- | S:-
+icar_action_card.xml[FU3T]: F:设置页整行动作卡背景 | R:- | A:- | S:-
+icar_bg_left.xml[FU3T]: F:设置窗口左侧半透明单色背景 | R:- | A:- | S:-
+icar_bg_right.xml[FU3T]: F:设置窗口右侧纵向三点渐变背景 | R:- | A:- | S:-
+icar_btn_primary.xml[FU3T]: F:模式A主按钮圆角背景 | R:- | A:- | S:-
+icar_card_neutral.xml[FU3T]: F:设置信息卡中性背景 | R:- | A:- | S:-
+icar_dialog_panel.xml[FU3T]: F:本地信息弹窗面板背景 | R:- | A:- | S:-
+icar_seg_selected.xml[FU3T]: F:分段控件选中段背景 | R:- | A:- | S:-
+icar_seg_track.xml[FU3T]: F:分段控件轨道背景 | R:- | A:- | S:-
+
+===D:/Icar03/app/src/main/res/mipmap-anydpi-v26/===
+ic_launcher.xml[FU2T]: F:自适应启动图标引用前景层 | R:code:app/src/main/res/drawable/ic_launcher_foreground.xml | A:- | S:-
+
+===D:/Icar03/app/src/main/res/values-night/===
+colors.xml[FC3T]: F:夜间模式颜色覆盖 | R:code:app/src/main/res/values/colors.xml | A:- | S:-
+
+===D:/Icar03/app/src/main/res/values/===
+colors.xml[FC4S]: F:车机设置与开关控件颜色字典 | R:code:app/src/main/java/com/icarme/lyrics/ui/UiKit.java,code:app/src/main/java/com/icarme/lyrics/ui/IcarSwitch.java | A:R.color.icar_* | S:与DESIGN.md强调色token一致，改色需同步主题桥
+dimens.xml[FC4S]: F:模式A布局尺寸token | R:code:app/src/main/java/com/icarme/lyrics/ui/UiKit.java | A:R.dimen.icar_* | S:px资源已按目标像素定义，UiKit禁止再dp换算
+strings.xml[FL3T]: F:车机端界面字符串 | R:- | A:R.string.* | S:-
+styles.xml[FC3T]: F:IcarAppTheme与控件样式 | R:code:app/src/main/AndroidManifest.xml | A:IcarAppTheme | S:-
+
+===D:/Icar03/app/src/main/res/xml/===
+accessibility_service_config.xml[FI3T]: F:无障碍服务声明只读窗口内容供几何探测 | R:code:app/src/main/java/com/icarme/lyrics/IcarA11yService.java | A:- | S:不申请手势注入，保持只读
+
+===D:/Icar03/notes/===
+BLE连接问题诊断交接-2026-09-10.md[SS6S]: F:BLE连接循环问题诊断记录与交接 | R:code:app/src/main/java/com/icarme/lyrics/BleService.java,code:phone/src/main/java/com/icarme/lyrics/phone/BlePeripheral.java | A:- | S:历史结论可能过时，改连接策略前须对照当前代码
+analysis-report.md[SS5S]: F:iCAR03第三方应用生态静态分析方法论笔记 | R:code:DESIGN.md | A:- | S:仅公开可观察架构知识，不含反编译源码
+bluetooth-lyrics-plan.md[SS6S]: F:蓝牙推送歌词零流量方案设计笔记 | R:code:README.md,code:app/src/main/java/com/icarme/lyrics/BleService.java | A:- | S:方案演进文档，协议以当前BleService与BlePeripheral实现为准
+记忆导出_2026-09-09.md[SS3S]: F:TeleAgent记忆导出备份供跨智能体迁移 | R:- | A:- | S:历史会话摘要非当前权威，工程决策以代码与AGENTS为准
+
+===D:/Icar03/phone/===
+build.gradle[FV8M]: F:手机端模块配置：SDK28侧载、共用车机签名、ZXing | R:code:app/build.gradle,code:signing/README.md | A:applicationId com.icarme.lyrics.phone | S:targetSdk故意28减少BLE后台差异；keystore密码明文在仓库供CI一致签名
+proguard-rules.pro[FC2T]: F:手机端无混淆规则声明 | R:- | A:- | S:release默认关minify
+
+===D:/Icar03/phone/src/main/===
+AndroidManifest.xml[FI9S]: F:手机端权限组件与自启/ADB入口声明 | R:code:phone/src/main/java/com/icarme/lyrics/phone/PlaybackService.java,code:phone/src/main/java/com/icarme/lyrics/phone/NotificationListener.java,code:phone/src/main/java/com/icarme/lyrics/phone/AdbReceiver.java | A:com.icarme.lyrics.phone.START/STOP,BOOT_COMPLETED,MAIN/LAUNCHER | S:bluetooth_le必需；targetSdk28需定位权限；receiver导出服务不导出
+
+===D:/Icar03/phone/src/main/java/com/icarme/lyrics/phone/===
+AdbClient.java[IN9L]: F:手机到车机无线ADB客户端：握手认证shell与推送安装 | R:code:phone/src/main/java/com/icarme/lyrics/phone/CarAdbSetup.java | A:connect/shell/pushAndInstall,AdbKeys.ensure | S:CNXN禁止声明shell_v2否则OPEN被CLSE；优先exec优于shell；单会话；RSA须2048位AOSP公钥格式
+AdbReceiver.java[ES4T]: F:ADB广播启停PlaybackService | R:code:phone/src/main/java/com/icarme/lyrics/phone/PlaybackService.java | A:com.icarme.lyrics.phone.START/STOP | S:START置autoStart真；STOP置假阻止自启；启动失败只写crash.log
+BlePacketizer.java[KN4T]: F:歌词JSON按BLE notify分片对齐车机Reassembler协议 | R:code:phone/src/main/java/com/icarme/lyrics/phone/BlePeripheral.java,code:app/src/main/java/com/icarme/lyrics/Reassembler.java | A:pack(json,maxPayload) -> byte[][] | S:头为LE frameId u16加seq与total；frameId递增使车机丢弃陈旧缓冲
+BlePeripheral.java[IH9L]: F:手机作BLE外设推送歌词进度指令，角色对调供车机连接 | R:code:phone/src/main/java/com/icarme/lyrics/phone/BlePacketizer.java,code:phone/src/main/java/com/icarme/lyrics/phone/BleWriteQueue.java | A:SVC_LYRICS/CH_LYRICS/CH_PROGRESS/CH_CMD,start/stop,pushLyrics | S:断连后须重开广播；通知必须用旧三参API；payload等于mtu减3减4
+BleWriteQueue.java[MR8M]: F:串行BLE写队列：单飞行真ACK重试与可丢进度合并 | R:code:phone/src/main/java/com/icarme/lyrics/phone/BlePeripheral.java | A:enqueue,onWriteResult,clear,Stats | S:禁止无ACK伪释放；歌词分片永不丢弃；ACK失败重发同项不前进队列
+BootReceiver.java[ER4T]: F:开机或覆盖安装自启PlaybackService | R:code:phone/src/main/java/com/icarme/lyrics/phone/PlaybackService.java | A:BOOT_COMPLETED,MY_PACKAGE_REPLACED | S:auto_start偏好关闭则不自启；异常只进crash.log
+CarAdbSetup.java[IN9M]: F:一键无线ADB配车：发现IP授权或推装车机APK | R:code:phone/src/main/java/com/icarme/lyrics/phone/AdbClient.java | A:runAsync/runInstallAsync,discoverHosts,grantOnHost | S:热点下getIpAddress常为0须扫网卡与ARP；授权目标包是com.icarme.lyrics非phone；镜像优先ghfast
+IcarPhoneApp.java[EG5T]: F:手机端Application单例与未捕获异常落盘 | R:code:phone/src/main/java/com/icarme/lyrics/phone/PlaybackService.java | A:get,saveCrash,readCrash | S:crash.log覆盖写非追加；读截断8192字节；处理器链默认handler不吞崩溃
+LyricsFetcher.java[IB8M]: F:手机三源取词lrclib网易QQ回退与内存缓存 | R:code:phone/src/main/java/com/icarme/lyrics/phone/PlaybackService.java | A:fetch(track,artist,durationSec) -> Result | S:结果须含时间轴[mm:ss]；plain歌词合成3s步进；网易QQ需Referer；缓存键track加artist
+NotificationListener.java[IM7S]: F:通知监听作MediaSession授权凭证并从通知提取媒体会话 | R:code:phone/src/main/java/com/icarme/lyrics/phone/PlaybackService.java | A:COMPONENT,pickFromNotifications,isListenerConnected | S:ColorOS升级后可能不重绑故媒体轮询在PlaybackService；实例WeakReference；getActiveNotifications仅系统绑定后可用
+PhoneMainActivity.java[AU9L]: F:手机端暗色启动UI：链路状态、ADB安装/授权与歌词预览 | R:code:phone/src/main/java/com/icarme/lyrics/phone/PlaybackService.java,code:phone/src/main/java/com/icarme/lyrics/phone/CarAdbSetup.java | A:MAIN/LAUNCHER singleTask,REQ_PERMS | S:安装与授权拆成按钮2仅授权、3装APK；全代码构View；偏移只影响手机预览不改BLE载荷
+PlaybackService.java[AB9L]: F:前台总调度：媒体轮询取词BLE推歌词进度与空闲偏移 | R:code:phone/src/main/java/com/icarme/lyrics/phone/BlePeripheral.java,code:phone/src/main/java/com/icarme/lyrics/phone/LyricsFetcher.java,code:phone/src/main/java/com/icarme/lyrics/phone/NotificationListener.java | A:startForegroundService,static mon/getOffsetMs/isAutoStart | S:媒体轮询放此处因ColorOS不重绑监听；ble仅onCreate创建；fetchSeq丢弃过期取词；IDLE_PAUSE 12s停广播
+QrEncoder.java[KU4T]: F:手机端ZXing二维码位图编码 | R:code:phone/build.gradle | A:encode(text,scale) -> Bitmap | S:失败抛IllegalStateException；scale手动放大模块矩阵
+UpdateChecker.java[IN6S]: F:检查GitHub最新版并提示浏览器下载 | R:code:phone/src/main/java/com/icarme/lyrics/phone/PhoneMainActivity.java | A:checkAsync/checkAndPrompt,isNewer | S:版本比较取前三段数字；下载走ACTION_VIEW无应用内安装
+
+===D:/Icar03/phone/src/main/res/drawable/===
+btn_ghost.xml[FU3T]: F:手机端幽灵按钮背景 | R:- | A:- | S:-
+btn_primary.xml[FU3T]: F:手机端主按钮背景 | R:- | A:- | S:-
+card_bg.xml[FU3T]: F:手机端卡片背景 | R:- | A:- | S:-
+ic_launcher_foreground.xml[FU3T]: F:手机启动图标前景歌词线条 | R:- | A:- | S:-
+ic_stat_lyrics.xml[FU3T]: F:手机通知栏歌词图标 | R:- | A:- | S:-
+
+===D:/Icar03/phone/src/main/res/mipmap-anydpi-v26/===
+ic_launcher.xml[FU2T]: F:手机自适应图标引用前景层 | R:code:phone/src/main/res/drawable/ic_launcher_foreground.xml | A:- | S:-
+
+===D:/Icar03/phone/src/main/res/values/===
+colors.xml[FC3T]: F:手机端颜色字典 | R:code:phone/src/main/java/com/icarme/lyrics/phone/PhoneMainActivity.java | A:R.color.* | S:-
+
+===D:/Icar03/signing/===
+README.md[SS5T]: F:说明侧载固定签名密钥用途与密码 | R:code:app/build.gradle,code:phone/build.gradle | A:keystore别名icarlyrics | S:密钥进仓库为CI覆盖安装签名一致；禁止用于其他应用或上架

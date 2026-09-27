@@ -1,0 +1,635 @@
+{
+  "version": 1,
+  "created_at": "2026-09-25T10:29:32Z",
+  "updated_at": "2026-09-27T06:23:29Z",
+  "files": {
+    ".gitattributes": {
+      "role": "index",
+      "sha256": "21fa16a2122e2b0360b47502c577428b645437e08e9e87ffba661f84853cb476",
+      "size": 291,
+      "normalized_sha256": "21fa16a2122e2b0360b47502c577428b645437e08e9e87ffba661f84853cb476"
+    },
+    ".github/workflows/release.yml": {
+      "role": "index",
+      "sha256": "9922303ab54aa7f4360724bc080feda4f9890b03fa9587cb5f37fac3a4fc363a",
+      "size": 1467,
+      "normalized_sha256": "9922303ab54aa7f4360724bc080feda4f9890b03fa9587cb5f37fac3a4fc363a"
+    },
+    ".gitignore": {
+      "role": "index",
+      "sha256": "bdc5aaea251ad193d251293b7a9ac34636d879920753de5f081e0c97054cddef",
+      "size": 257,
+      "normalized_sha256": "bdc5aaea251ad193d251293b7a9ac34636d879920753de5f081e0c97054cddef"
+    },
+    "AGENTS.md": {
+      "role": "index",
+      "sha256": "ddb50101a5be7eb54bde0bdccb2ce15fbac13a0efed1b2851adc248c7a39bcb7",
+      "size": 13258,
+      "normalized_sha256": "ddb50101a5be7eb54bde0bdccb2ce15fbac13a0efed1b2851adc248c7a39bcb7"
+    },
+    "DESIGN.md": {
+      "role": "index",
+      "sha256": "9b61cf80dd532740b08af77f49d5d6d1be337dc9dea632d87ec2da44bdcf4b30",
+      "size": 3549,
+      "normalized_sha256": "9b61cf80dd532740b08af77f49d5d6d1be337dc9dea632d87ec2da44bdcf4b30"
+    },
+    "LICENSE": {
+      "role": "index",
+      "sha256": "8408d3dd14ac998966d22ad7c7cfa125ff9422e3c7bca8f120103a118584054f",
+      "size": 1085,
+      "normalized_sha256": "2964a8fc71e45a83787c414fd7f672c5660c1fae1a01c750b4732c32bcb27eaa"
+    },
+    "README.md": {
+      "role": "index",
+      "sha256": "07580fd73e69b8c4f0e4aa0b1ca6e7a87b8aa5c0814920e76f06c87d2b785a44",
+      "size": 4313,
+      "normalized_sha256": "7e28dec598db681a0b9a878f39c88a5e211cf87f66ecc7a19fed151185499395"
+    },
+    "aoci.code.txt": {
+      "role": "index",
+      "sha256": "75eebdd6a712bd1feea9437655d6249d2d763fa3eddaa7328c6266f4f4bb5506",
+      "size": 21557,
+      "normalized_sha256": "75eebdd6a712bd1feea9437655d6249d2d763fa3eddaa7328c6266f4f4bb5506"
+    },
+    "aoci.meta.txt": {
+      "role": "index",
+      "sha256": "60ffea0527ae0e1e2b5bf822c119cd3141118cdd33479dec063ee5f9c2114126",
+      "size": 1900,
+      "normalized_sha256": "60ffea0527ae0e1e2b5bf822c119cd3141118cdd33479dec063ee5f9c2114126"
+    },
+    "aoci.txt": {
+      "role": "index",
+      "sha256": "dd86f554ddd0f894fc4f94a939e3bc87bbbc57222e5c69abc4c47120584422e1",
+      "size": 295,
+      "normalized_sha256": "dd86f554ddd0f894fc4f94a939e3bc87bbbc57222e5c69abc4c47120584422e1"
+    },
+    "app/build.gradle": {
+      "role": "index",
+      "sha256": "a0acedbf7167644ff19fedde1ba19a2d4bd8eeeab5c66b91a170724889f79f2e",
+      "size": 2193,
+      "normalized_sha256": "0095a159106522d65cd4acd4cdaca3e605b599e4f98c20b859b706ba3733d33b"
+    },
+    "app/proguard-rules.pro": {
+      "role": "index",
+      "sha256": "a47d8ec90f56685d2942d6d0b58197f32bbf657d20201436128ab29055eaebb4",
+      "size": 62,
+      "normalized_sha256": "a47d8ec90f56685d2942d6d0b58197f32bbf657d20201436128ab29055eaebb4"
+    },
+    "app/src/main/AndroidManifest.xml": {
+      "role": "index",
+      "sha256": "c835ce821ea168d327c5e56f50d235d6479236b3fe93fb201e6529995e55eaa9",
+      "size": 4788,
+      "normalized_sha256": "c835ce821ea168d327c5e56f50d235d6479236b3fe93fb201e6529995e55eaa9"
+    },
+    "app/src/main/assets/lyrics_overlay.html": {
+      "role": "index",
+      "sha256": "88172e7c89d7436bf1008a9925a4855fe86e7ee789c80ef2a706fc7d986daf74",
+      "size": 26616,
+      "normalized_sha256": "28dcaf9c47fe6ee029d88edc1a48c658fabca15d1786cf1cd126e7c27e80499e"
+    },
+    "app/src/main/java/com/icarme/lyrics/AdbHelper.java": {
+      "role": "index",
+      "sha256": "c6c767ef12ee5de3788ce9021e4890255c5ae7a1b3b0136d861daa032cc3296b",
+      "size": 2026,
+      "normalized_sha256": "c6c767ef12ee5de3788ce9021e4890255c5ae7a1b3b0136d861daa032cc3296b"
+    },
+    "app/src/main/java/com/icarme/lyrics/AdbReceiver.java": {
+      "role": "index",
+      "sha256": "b1113bc52283fee7df03c0366354279385c28eb27ad83474eb3aaf4de66f03c4",
+      "size": 2976,
+      "normalized_sha256": "c44a713fdcf0866efe38073fcb924b8e3c68417b091d27eaddf2b78b5fe1c54b"
+    },
+    "app/src/main/java/com/icarme/lyrics/ApkHttpServer.java": {
+      "role": "index",
+      "sha256": "48924e089f180420347ac47fd0b60c1deaab57f78ecc56544fe0a9153bef83a3",
+      "size": 6199,
+      "normalized_sha256": "a4fcf194d56781ec43242b927d67094d56b782a3d14d7904ab3d8e92f0254bf2"
+    },
+    "app/src/main/java/com/icarme/lyrics/ApkInstaller.java": {
+      "role": "index",
+      "sha256": "8b6f38c9dc474a4c5fd7b3dcfd7a2393631754464f2b01ebeeb212f3a680a050",
+      "size": 8282,
+      "normalized_sha256": "8b6f38c9dc474a4c5fd7b3dcfd7a2393631754464f2b01ebeeb212f3a680a050"
+    },
+    "app/src/main/java/com/icarme/lyrics/BleService.java": {
+      "role": "index",
+      "sha256": "57f8e9045f1b0df28862bccbcdcddcf5b793974aa651cca11c577b06569801b8",
+      "size": 18606,
+      "normalized_sha256": "b303a8c03e2cd8ed282aa178f608408bee620b248a7345abe722b87df0395a66"
+    },
+    "app/src/main/java/com/icarme/lyrics/BootReceiver.java": {
+      "role": "index",
+      "sha256": "749e7312ace413249d24380f1389f6d412884e02a4a985eb102679506d2d6f63",
+      "size": 1100,
+      "normalized_sha256": "dff8f21707956ffe765b3b2e362977d07bd8634812f45bb16d7d140482de1e6d"
+    },
+    "app/src/main/java/com/icarme/lyrics/CarLyricsFetcher.java": {
+      "role": "index",
+      "sha256": "e809ce5d06e8af919c265f0416d3fb7f67178921e91b658ac8fb3a9e756c91b3",
+      "size": 12300,
+      "normalized_sha256": "e809ce5d06e8af919c265f0416d3fb7f67178921e91b658ac8fb3a9e756c91b3"
+    },
+    "app/src/main/java/com/icarme/lyrics/CarMediaListener.java": {
+      "role": "index",
+      "sha256": "bcc272efdda11e1a4f333188a64de374d4f32b28cf6a17fa6bfa0eb16c31a04b",
+      "size": 1419,
+      "normalized_sha256": "cb0cdb966795f2c5bf13848576b1408fedb01c78a65cad0cf67d665d234fbb92"
+    },
+    "app/src/main/java/com/icarme/lyrics/DisplayPolicy.java": {
+      "role": "index",
+      "sha256": "bfab6272c9b32b5e6421131b3fcfef9114a472b34d70a63d3cf492de5a55f801",
+      "size": 12026,
+      "normalized_sha256": "bfab6272c9b32b5e6421131b3fcfef9114a472b34d70a63d3cf492de5a55f801"
+    },
+    "app/src/main/java/com/icarme/lyrics/HotspotInfo.java": {
+      "role": "index",
+      "sha256": "d32830dde816718d34eb81d98012feb530422c710921f46d477ea04099503c0f",
+      "size": 11033,
+      "normalized_sha256": "a061466a4225fa8149ca61cc41517fb2ae645dc14ea0b000452ce54e535b9992"
+    },
+    "app/src/main/java/com/icarme/lyrics/IcarA11yService.java": {
+      "role": "index",
+      "sha256": "af63ac9e7daaf4f80b035e101cc4164faa6519eb33ae4b51054a475edd916a1b",
+      "size": 5208,
+      "normalized_sha256": "af63ac9e7daaf4f80b035e101cc4164faa6519eb33ae4b51054a475edd916a1b"
+    },
+    "app/src/main/java/com/icarme/lyrics/IcarApp.java": {
+      "role": "index",
+      "sha256": "8e26b9eb29506789f0b38123cdcd6f8b32977282802855729178ec3649f96c4d",
+      "size": 340,
+      "normalized_sha256": "8e26b9eb29506789f0b38123cdcd6f8b32977282802855729178ec3649f96c4d"
+    },
+    "app/src/main/java/com/icarme/lyrics/MainActivity.java": {
+      "role": "index",
+      "sha256": "e58933df8bec74629d464ede2bba06661e5a637e8b1951b72b4838c3755dc3ee",
+      "size": 27878,
+      "normalized_sha256": "e58933df8bec74629d464ede2bba06661e5a637e8b1951b72b4838c3755dc3ee"
+    },
+    "app/src/main/java/com/icarme/lyrics/OverlayService.java": {
+      "role": "index",
+      "sha256": "628385c31dd3acd9433beb259206cbfc3e2051df64a88dd748559785d9c99868",
+      "size": 27340,
+      "normalized_sha256": "419210a7555d1a80d38901738c5497e5959c5acac473976260cb476ba667c5df"
+    },
+    "app/src/main/java/com/icarme/lyrics/QrEncoder.java": {
+      "role": "index",
+      "sha256": "dffc338ea5d666f9912b11b73e3df49b2b8938f58a1323a6344960d484aba068",
+      "size": 1670,
+      "normalized_sha256": "dffc338ea5d666f9912b11b73e3df49b2b8938f58a1323a6344960d484aba068"
+    },
+    "app/src/main/java/com/icarme/lyrics/Reassembler.java": {
+      "role": "index",
+      "sha256": "15f7720ddb6e2a12af0ceee18b9cc6ae7f4347d3e2f4c2024592f0397a8e9473",
+      "size": 4015,
+      "normalized_sha256": "15f7720ddb6e2a12af0ceee18b9cc6ae7f4347d3e2f4c2024592f0397a8e9473"
+    },
+    "app/src/main/java/com/icarme/lyrics/SceneDetector.java": {
+      "role": "index",
+      "sha256": "805696cd44092d932d3a8c704839f202e25a593a5b671906d399f2344f195ef3",
+      "size": 4957,
+      "normalized_sha256": "1f34aaf31c4d77a4d8073eca0fdcd8325cd98ec3729505a24ea4dda0217874d5"
+    },
+    "app/src/main/java/com/icarme/lyrics/UpdateChecker.java": {
+      "role": "index",
+      "sha256": "bce3804ccfd8221e8376179df7eb51d99c8039e582eccb833428081ce792605d",
+      "size": 8344,
+      "normalized_sha256": "bce3804ccfd8221e8376179df7eb51d99c8039e582eccb833428081ce792605d"
+    },
+    "app/src/main/java/com/icarme/lyrics/ui/IcarSwitch.java": {
+      "role": "index",
+      "sha256": "7749995291fe14cc739f73a9be5e04fb59ce34df06f7cba9ec893341b90f3f90",
+      "size": 4324,
+      "normalized_sha256": "7749995291fe14cc739f73a9be5e04fb59ce34df06f7cba9ec893341b90f3f90"
+    },
+    "app/src/main/java/com/icarme/lyrics/ui/LyricsSettingsRenderer.java": {
+      "role": "index",
+      "sha256": "b1d53a190dda5548293de9b5d44382b4da78a1b43bbf2e0fa93af85b48060e9e",
+      "size": 16829,
+      "normalized_sha256": "b1d53a190dda5548293de9b5d44382b4da78a1b43bbf2e0fa93af85b48060e9e"
+    },
+    "app/src/main/java/com/icarme/lyrics/ui/ThemeAccent.java": {
+      "role": "index",
+      "sha256": "629524da2408fed1cf12d09116403387cd145ca6510ee579d8c82da1c43ca63a",
+      "size": 4914,
+      "normalized_sha256": "629524da2408fed1cf12d09116403387cd145ca6510ee579d8c82da1c43ca63a"
+    },
+    "app/src/main/java/com/icarme/lyrics/ui/UiKit.java": {
+      "role": "index",
+      "sha256": "bbb33e69bacf11105d9b6626628377d9588f3f76f085866acd2d75655b1bdb62",
+      "size": 10906,
+      "normalized_sha256": "bbb33e69bacf11105d9b6626628377d9588f3f76f085866acd2d75655b1bdb62"
+    },
+    "app/src/main/res/anim/bottom_in.xml": {
+      "role": "index",
+      "sha256": "4e104451c91d61053f8575cfdc9a272249d81a31e31e779c30eb416b85c9872b",
+      "size": 224,
+      "normalized_sha256": "4e104451c91d61053f8575cfdc9a272249d81a31e31e779c30eb416b85c9872b"
+    },
+    "app/src/main/res/anim/bottom_out.xml": {
+      "role": "index",
+      "sha256": "318da172cb13a313c277323ce5859ddf4d2435bd077e869e8e7b5c2209d7e29d",
+      "size": 224,
+      "normalized_sha256": "318da172cb13a313c277323ce5859ddf4d2435bd077e869e8e7b5c2209d7e29d"
+    },
+    "app/src/main/res/drawable/btn_ghost.xml": {
+      "role": "index",
+      "sha256": "2b283e650dfd07f0d86d529ba2dc1ed444505736aac3698e228a999411625832",
+      "size": 643,
+      "normalized_sha256": "c98a6bf8f88e902633491ebd11e33063d65235f95e408e4a3ad2ccd8cc27b922"
+    },
+    "app/src/main/res/drawable/btn_primary.xml": {
+      "role": "index",
+      "sha256": "f675ee42fc60db3756728de63f84056b4975c5811a3bcf412df7f415a19f83e1",
+      "size": 509,
+      "normalized_sha256": "faf73d6ab0cb5e5f004b1d999031b7958e192bf11294d831336bd537cc47f8cd"
+    },
+    "app/src/main/res/drawable/card_bg.xml": {
+      "role": "index",
+      "sha256": "0e096b5c91b147392bb89eb9bf2a3dbb7c2b3a8f74d23b4ced01b15bcca315cb",
+      "size": 284,
+      "normalized_sha256": "704a1bb2232b306557464e66d2b188c12187e433abbae72010641e0dcf4e9edc"
+    },
+    "app/src/main/res/drawable/ic_launcher_foreground.xml": {
+      "role": "index",
+      "sha256": "e37178c37a1b0c230b51816a20f5cc0bfe99dbe84bd3134e48a9896e05cadd76",
+      "size": 869,
+      "normalized_sha256": "d310b3fe70fcc461eb6cb59c8f6a815b7f0b010f91a8c9534a2c80cf705fb676"
+    },
+    "app/src/main/res/drawable/ic_stat_lyrics.xml": {
+      "role": "index",
+      "sha256": "cd66aaf950d502d1d512f68e641ee2197361803c7a8704dc3d6d7d6a4f325ceb",
+      "size": 865,
+      "normalized_sha256": "17dcda46b4ee0dcbc56371ea8ca5ebf277ea795b7a0cb209625407b88b75be1b"
+    },
+    "app/src/main/res/drawable/icar_action_card.xml": {
+      "role": "index",
+      "sha256": "ebede10c8275553a07e4de5a8d3a724d0fda6489e118bbe3b2ca7e3e54bcde94",
+      "size": 255,
+      "normalized_sha256": "ebede10c8275553a07e4de5a8d3a724d0fda6489e118bbe3b2ca7e3e54bcde94"
+    },
+    "app/src/main/res/drawable/icar_bg_left.xml": {
+      "role": "index",
+      "sha256": "0a7ad885f57d2e9ccbde71ad38a7402a07461ec48057d05fd441feb46d5ed4fe",
+      "size": 191,
+      "normalized_sha256": "0a7ad885f57d2e9ccbde71ad38a7402a07461ec48057d05fd441feb46d5ed4fe"
+    },
+    "app/src/main/res/drawable/icar_bg_right.xml": {
+      "role": "index",
+      "sha256": "dc94f36dea697a5cda7f054f4ea8cff7c0909cc3fa391311329f67afdf96a234",
+      "size": 371,
+      "normalized_sha256": "dc94f36dea697a5cda7f054f4ea8cff7c0909cc3fa391311329f67afdf96a234"
+    },
+    "app/src/main/res/drawable/icar_btn_primary.xml": {
+      "role": "index",
+      "sha256": "c707d664cd42ea5ceb004c9ba3ba57cd00792b219416324c229d448d5033440d",
+      "size": 252,
+      "normalized_sha256": "c707d664cd42ea5ceb004c9ba3ba57cd00792b219416324c229d448d5033440d"
+    },
+    "app/src/main/res/drawable/icar_card_neutral.xml": {
+      "role": "index",
+      "sha256": "bd9c4961f26ae5a212440c824bb3a2c98fd5d444fc90ce5fd81bf59987cc80cb",
+      "size": 253,
+      "normalized_sha256": "bd9c4961f26ae5a212440c824bb3a2c98fd5d444fc90ce5fd81bf59987cc80cb"
+    },
+    "app/src/main/res/drawable/icar_dialog_panel.xml": {
+      "role": "index",
+      "sha256": "73eaac753a997a2936036d66fdf6c8b4cefc6b59ed28c01a415f9e3041f46a96",
+      "size": 340,
+      "normalized_sha256": "73eaac753a997a2936036d66fdf6c8b4cefc6b59ed28c01a415f9e3041f46a96"
+    },
+    "app/src/main/res/drawable/icar_seg_selected.xml": {
+      "role": "index",
+      "sha256": "9d3e81a74266037fbf05bb251564a738178a39279e791ff99cc9d107411fd9aa",
+      "size": 339,
+      "normalized_sha256": "9d3e81a74266037fbf05bb251564a738178a39279e791ff99cc9d107411fd9aa"
+    },
+    "app/src/main/res/drawable/icar_seg_track.xml": {
+      "role": "index",
+      "sha256": "7e2c7bc4e6fe9b0def347996492a6f190984660b7399e2fd24aa2c34460562db",
+      "size": 258,
+      "normalized_sha256": "7e2c7bc4e6fe9b0def347996492a6f190984660b7399e2fd24aa2c34460562db"
+    },
+    "app/src/main/res/drawable/wechat_qr.png": {
+      "role": "index",
+      "sha256": "cf85cff9ab6255ae253e24fec2f6e982e3af8d0ee863c13cca7b0e1f0981f8e4",
+      "size": 150622
+    },
+    "app/src/main/res/drawable/wechat_tip.png": {
+      "role": "index",
+      "sha256": "ca122d3d90b8c56b7545585fdddb739769b29713777b2c68eb2a3eaca5bbd3cf",
+      "size": 238389
+    },
+    "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml": {
+      "role": "index",
+      "sha256": "17364124a8e0552a653e50377256521531313b6401e43cf975f1fd0e957bed94",
+      "size": 273,
+      "normalized_sha256": "5f3b1ed2282af327c78539428c3398a99a7e9a09051c2ae2cf7aa27068201319"
+    },
+    "app/src/main/res/values-night/colors.xml": {
+      "role": "index",
+      "sha256": "3c7be0df5766f97e93b3d826cdf132d2abf06c7af349b3d7b9c4082f79a41219",
+      "size": 1160,
+      "normalized_sha256": "3c7be0df5766f97e93b3d826cdf132d2abf06c7af349b3d7b9c4082f79a41219"
+    },
+    "app/src/main/res/values/colors.xml": {
+      "role": "index",
+      "sha256": "b3ccaa5a8ec642c7c984b2b3f6f5cbe7ec67216ca4c30bd72048b2fcbd7ae6e8",
+      "size": 1167,
+      "normalized_sha256": "b3ccaa5a8ec642c7c984b2b3f6f5cbe7ec67216ca4c30bd72048b2fcbd7ae6e8"
+    },
+    "app/src/main/res/values/dimens.xml": {
+      "role": "index",
+      "sha256": "8b357cc0a3a5aa2beb95b0aaf91ca1f26b873682eca15a036f26c42bdc942dce",
+      "size": 2102,
+      "normalized_sha256": "8b357cc0a3a5aa2beb95b0aaf91ca1f26b873682eca15a036f26c42bdc942dce"
+    },
+    "app/src/main/res/values/strings.xml": {
+      "role": "index",
+      "sha256": "02cc5ec1d5059d95ad873245bf44c415f21cf093ac4f90931e27bc3268c67d0d",
+      "size": 220,
+      "normalized_sha256": "02cc5ec1d5059d95ad873245bf44c415f21cf093ac4f90931e27bc3268c67d0d"
+    },
+    "app/src/main/res/values/styles.xml": {
+      "role": "index",
+      "sha256": "c3a5ab8fedd8ba92971a3248592f2e1771a900e800070f08a54b874817d6ab67",
+      "size": 1785,
+      "normalized_sha256": "c3a5ab8fedd8ba92971a3248592f2e1771a900e800070f08a54b874817d6ab67"
+    },
+    "app/src/main/res/xml/accessibility_service_config.xml": {
+      "role": "index",
+      "sha256": "2eb0c41f1b53499b9630362346ed6ca235330b680ce354ad815a77de2a7fc8e9",
+      "size": 551,
+      "normalized_sha256": "2eb0c41f1b53499b9630362346ed6ca235330b680ce354ad815a77de2a7fc8e9"
+    },
+    "build.gradle": {
+      "role": "index",
+      "sha256": "6844d442e0ae87ec0b784c8afe5598878784c4fa41aced1e9389a9b3bfb25666",
+      "size": 74,
+      "normalized_sha256": "6844d442e0ae87ec0b784c8afe5598878784c4fa41aced1e9389a9b3bfb25666"
+    },
+    "gradle.properties": {
+      "role": "index",
+      "sha256": "e6b436ff6a08da8b8c05e0e2fc1a7f40f41701bb506cd80fc2ddfd7b6e3b3b2b",
+      "size": 109,
+      "normalized_sha256": "e6b436ff6a08da8b8c05e0e2fc1a7f40f41701bb506cd80fc2ddfd7b6e3b3b2b"
+    },
+    "notes/BLE连接问题诊断交接-2026-09-10.md": {
+      "role": "index",
+      "sha256": "6844ab1f6039ff9b21f4f5c15a4d58769bce750d3a34b856db30af3798b0e145",
+      "size": 5638,
+      "normalized_sha256": "3783db9f1f6f3a8d86b41d16e16f8e5fd7720773ab46bb10662757dbdb8b584f"
+    },
+    "notes/analysis-report.md": {
+      "role": "index",
+      "sha256": "270b755f4a8ef6158d37f6f9e9d718009f19ae13a87dddd471662d826113e049",
+      "size": 7380,
+      "normalized_sha256": "270b755f4a8ef6158d37f6f9e9d718009f19ae13a87dddd471662d826113e049"
+    },
+    "notes/bluetooth-lyrics-plan.md": {
+      "role": "index",
+      "sha256": "3e4a96cb23846d8a82cef64692b9054e811784476e2b0f7991c84fbfd5f98215",
+      "size": 6079,
+      "normalized_sha256": "3e4a96cb23846d8a82cef64692b9054e811784476e2b0f7991c84fbfd5f98215"
+    },
+    "notes/记忆导出_2026-09-09.md": {
+      "role": "index",
+      "sha256": "2f45e3f751d14de5fc1182f469f154fbfbd8fb8540283a9618a7d2da1307d9fa",
+      "size": 18009,
+      "normalized_sha256": "bf49052a567b38346756934a3f21f5197364e2c46b1f04bcf360044bfb761392"
+    },
+    "phone/build.gradle": {
+      "role": "index",
+      "sha256": "8c3f0e9981f7ed1c460206a89b8bb5daae549757957bc680c43f32347b9b3b0d",
+      "size": 1485,
+      "normalized_sha256": "774bba706d133e750805523c5a0fdc87f53b070dcee0d53f0f40aac5c5e370f6"
+    },
+    "phone/proguard-rules.pro": {
+      "role": "index",
+      "sha256": "e26fa75baeb50bee9f0a8fbd91c2fd3c87b4d65450b28f3361a7453f8b671890",
+      "size": 65,
+      "normalized_sha256": "e26fa75baeb50bee9f0a8fbd91c2fd3c87b4d65450b28f3361a7453f8b671890"
+    },
+    "phone/src/main/AndroidManifest.xml": {
+      "role": "index",
+      "sha256": "78dfed6f48f0a6b21276b6a842ff6f11504dbaedc2b53ace0fd4c55caf749a4c",
+      "size": 3377,
+      "normalized_sha256": "eb58a1f5545fbb4f5fa244c0b8b066c80b312585c4ed5e2b6915689ff17036dc"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/AdbClient.java": {
+      "role": "index",
+      "sha256": "b02bb91605646a84595be0e34f780d356a3ac933dfe0b13104f86d9ea7ca2792",
+      "size": 18533,
+      "normalized_sha256": "b02bb91605646a84595be0e34f780d356a3ac933dfe0b13104f86d9ea7ca2792"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/AdbReceiver.java": {
+      "role": "index",
+      "sha256": "7ed2bc5a03839ae7ce71583d9e9afdd0eafbe8613bffc9b7645913906b531da7",
+      "size": 1324,
+      "normalized_sha256": "bb0e9ca51b6ace50f8d5f9c864303b62b5a79d43861eee2727286a67fef91b60"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/BlePacketizer.java": {
+      "role": "index",
+      "sha256": "99e914f7555dd47d6a85bc5e4733686093a8944dc76d04092b8e501a579677bc",
+      "size": 1319,
+      "normalized_sha256": "99e914f7555dd47d6a85bc5e4733686093a8944dc76d04092b8e501a579677bc"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/BlePeripheral.java": {
+      "role": "index",
+      "sha256": "335bb78b730db1a19799d6e4f7401fd12aecc6e1190a6622b3b15f4e90650ce1",
+      "size": 18996,
+      "normalized_sha256": "aca9ab9652f37751375bde71a86599c18ef76d23844fcb78e14dc0f802358ef2"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/BleWriteQueue.java": {
+      "role": "index",
+      "sha256": "ad9c1ba7246baf340f918af8b5668c5901080b34f125f7ccc8f207447a24de7a",
+      "size": 6971,
+      "normalized_sha256": "289ffc14eb773541b5d97ae7329295b5937b64023d9afa45a341588087890be4"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/BootReceiver.java": {
+      "role": "index",
+      "sha256": "66c231701f2d5d3edfe75e9d68229ecc8160246f1fcaeb311f4f6fea5c71ad7a",
+      "size": 832,
+      "normalized_sha256": "18fc8c058e957445e11584f80c5d4f1f972dfed3de35aef82f60fbf765c68c71"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/CarAdbSetup.java": {
+      "role": "index",
+      "sha256": "4c87357c3eb925d7bca5a1283aeb8a888ceaecf0e34d6c3800c1aba180cda980",
+      "size": 17701,
+      "normalized_sha256": "4c87357c3eb925d7bca5a1283aeb8a888ceaecf0e34d6c3800c1aba180cda980"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/IcarPhoneApp.java": {
+      "role": "index",
+      "sha256": "b44e5f7ea4438d6badf9efb06ee6932313166da4ceb740d30532026fe410989f",
+      "size": 2354,
+      "normalized_sha256": "b44e5f7ea4438d6badf9efb06ee6932313166da4ceb740d30532026fe410989f"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/LyricsFetcher.java": {
+      "role": "index",
+      "sha256": "7c1d8718609fa8b41eaa19163e1a0f073414d5bb2affbb652851359e7a97ba76",
+      "size": 14078,
+      "normalized_sha256": "7c1d8718609fa8b41eaa19163e1a0f073414d5bb2affbb652851359e7a97ba76"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/NotificationListener.java": {
+      "role": "index",
+      "sha256": "a16303672fbbeaa581ff45ae846e3adc978dedb6d427e00c402a6aba97bbb470",
+      "size": 5342,
+      "normalized_sha256": "a16303672fbbeaa581ff45ae846e3adc978dedb6d427e00c402a6aba97bbb470"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/PhoneMainActivity.java": {
+      "role": "index",
+      "sha256": "d7b6a341663a844a36022a8be5897e326440dc6c23d85a7b2c4b2a2e09975250",
+      "size": 30609,
+      "normalized_sha256": "14f4f5f6c227cd9172b9a66144c2f17be88d1799cff2a6355cb187bb1ca0457a"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/PlaybackService.java": {
+      "role": "index",
+      "sha256": "8da1c6a2d08dfb1a337330cc9bc7331c200a2f4cf05a7b9f6874e42f9c5b543b",
+      "size": 30624,
+      "normalized_sha256": "43d97f1d47bd93a3fa83aaeb0230d59d99ec52fa4c287ab3734e8e2594a1b56b"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/QrEncoder.java": {
+      "role": "index",
+      "sha256": "f66290e09a28d2b51bff084eb1353ee8d859ca35b0b6bc918627136a2bb69ef8",
+      "size": 1633,
+      "normalized_sha256": "f66290e09a28d2b51bff084eb1353ee8d859ca35b0b6bc918627136a2bb69ef8"
+    },
+    "phone/src/main/java/com/icarme/lyrics/phone/UpdateChecker.java": {
+      "role": "index",
+      "sha256": "191d64ae8e104f5dbda6cf33d982397df1e34b166f41d5cc523d1ea01799b955",
+      "size": 4731,
+      "normalized_sha256": "191d64ae8e104f5dbda6cf33d982397df1e34b166f41d5cc523d1ea01799b955"
+    },
+    "phone/src/main/res/drawable/btn_ghost.xml": {
+      "role": "index",
+      "sha256": "2b283e650dfd07f0d86d529ba2dc1ed444505736aac3698e228a999411625832",
+      "size": 643,
+      "normalized_sha256": "c98a6bf8f88e902633491ebd11e33063d65235f95e408e4a3ad2ccd8cc27b922"
+    },
+    "phone/src/main/res/drawable/btn_primary.xml": {
+      "role": "index",
+      "sha256": "f675ee42fc60db3756728de63f84056b4975c5811a3bcf412df7f415a19f83e1",
+      "size": 509,
+      "normalized_sha256": "faf73d6ab0cb5e5f004b1d999031b7958e192bf11294d831336bd537cc47f8cd"
+    },
+    "phone/src/main/res/drawable/card_bg.xml": {
+      "role": "index",
+      "sha256": "0e096b5c91b147392bb89eb9bf2a3dbb7c2b3a8f74d23b4ced01b15bcca315cb",
+      "size": 284,
+      "normalized_sha256": "704a1bb2232b306557464e66d2b188c12187e433abbae72010641e0dcf4e9edc"
+    },
+    "phone/src/main/res/drawable/ic_launcher_foreground.xml": {
+      "role": "index",
+      "sha256": "fb85cb41aa0d87072e4a131a6b9c992ef210c1baf14676a10778c3064043788d",
+      "size": 869,
+      "normalized_sha256": "a79a7b663e1a908321c8325992089d5c282cc5af0fbaaf4ddd94e9e2ce41ee52"
+    },
+    "phone/src/main/res/drawable/ic_stat_lyrics.xml": {
+      "role": "index",
+      "sha256": "cd66aaf950d502d1d512f68e641ee2197361803c7a8704dc3d6d7d6a4f325ceb",
+      "size": 865,
+      "normalized_sha256": "17dcda46b4ee0dcbc56371ea8ca5ebf277ea795b7a0cb209625407b88b75be1b"
+    },
+    "phone/src/main/res/drawable/wechat_qr.png": {
+      "role": "index",
+      "sha256": "cf85cff9ab6255ae253e24fec2f6e982e3af8d0ee863c13cca7b0e1f0981f8e4",
+      "size": 150622
+    },
+    "phone/src/main/res/drawable/wechat_tip.png": {
+      "role": "index",
+      "sha256": "ca122d3d90b8c56b7545585fdddb739769b29713777b2c68eb2a3eaca5bbd3cf",
+      "size": 238389
+    },
+    "phone/src/main/res/mipmap-anydpi-v26/ic_launcher.xml": {
+      "role": "index",
+      "sha256": "17364124a8e0552a653e50377256521531313b6401e43cf975f1fd0e957bed94",
+      "size": 273,
+      "normalized_sha256": "5f3b1ed2282af327c78539428c3398a99a7e9a09051c2ae2cf7aa27068201319"
+    },
+    "phone/src/main/res/values/colors.xml": {
+      "role": "index",
+      "sha256": "f210c6cf49f938bfe82727597a752f36f26ebe0787674541a8c54e06d1dd55c3",
+      "size": 125,
+      "normalized_sha256": "9c437e8ca3105365769196b6cda2ba2abce085a92c8568884769e08142297837"
+    },
+    "settings.gradle": {
+      "role": "index",
+      "sha256": "4d2b4baa43331291fbea21fbaee395c1fea35f1ae6b9fc28945f95a097b13d97",
+      "size": 337,
+      "normalized_sha256": "4d2b4baa43331291fbea21fbaee395c1fea35f1ae6b9fc28945f95a097b13d97"
+    },
+    "signing/README.md": {
+      "role": "index",
+      "sha256": "9734937ad65ff53d291269ccdf713871d7e329dd6b696041df58b275caff3b2a",
+      "size": 446,
+      "normalized_sha256": "9734937ad65ff53d291269ccdf713871d7e329dd6b696041df58b275caff3b2a"
+    }
+  },
+  "managed_scope": {
+    "version": "managed-scope-baseline/v1",
+    "policy_identity": "81421936ffa2228995783d12046110aa7b7759d131ce244b24bf0a69a61c9264",
+    "observe_change_policy": "review_required",
+    "budget_policy_identity": "15e9b37a6c57e9bf03c9df3d0d049eb5b9a7f5540f9d34960408114e2538a32d",
+    "budget_policy": {
+      "version": "cognition-budget-policy/v1",
+      "mode": "enforce",
+      "whole_index": {
+        "target_tokens": 200000,
+        "warning_tokens": 300000,
+        "max_tokens": 400000
+      },
+      "r": [
+        {
+          "min_c": 1,
+          "max_c": 4,
+          "target_tokens": 25,
+          "max_tokens": 50
+        },
+        {
+          "min_c": 5,
+          "max_c": 7,
+          "target_tokens": 45,
+          "max_tokens": 90
+        },
+        {
+          "min_c": 8,
+          "max_c": 8,
+          "target_tokens": 70,
+          "max_tokens": 140
+        },
+        {
+          "min_c": 9,
+          "max_c": 9,
+          "target_tokens": 90,
+          "max_tokens": 180
+        }
+      ],
+      "s": [
+        {
+          "min_c": 1,
+          "max_c": 4,
+          "target_tokens": 20,
+          "max_tokens": 40
+        },
+        {
+          "min_c": 5,
+          "max_c": 7,
+          "target_tokens": 40,
+          "max_tokens": 80
+        },
+        {
+          "min_c": 8,
+          "max_c": 8,
+          "target_tokens": 70,
+          "max_tokens": 140
+        },
+        {
+          "min_c": 9,
+          "max_c": 9,
+          "target_tokens": 100,
+          "max_tokens": 200
+        }
+      ]
+    },
+    "apply_authorization_mode": "auto"
+  }
+}

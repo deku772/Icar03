@@ -7,3 +7,7 @@ private/
 assets/
 notes/ui-mode-a-car.png
 # notes/ 技术路线笔记已纳入版本管理，换机器可从远程找回
+
+# AOCI agent host integration (machine-bound; do not commit)
+.mcp.json
+.mcp.json.backup.*

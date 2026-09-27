@@ -46,6 +46,7 @@ public class PhoneMainActivity extends Activity {
 
     private Button btnService;
     private Button btnCarAdb;
+    private Button btnCarGrant;
     private Button btnCarInstall;
     private android.widget.EditText etCarIp;
     private TextView tvCarAdbLog;
@@ -196,27 +197,35 @@ public class PhoneMainActivity extends Activity {
         btnPerms.setOnClickListener(v -> requestPermissions());
         box.addView(btnPerms);
 
-        /* 2 一键安装并授权车机（合并原安装+授权） */
+        /* 2 仅授权车机（不安装，可单独使用） */
+        btnCarGrant = new Button(new android.view.ContextThemeWrapper(this,
+                android.R.style.Widget_Material_Button_Borderless), null, 0);
+        btnCarGrant.setText("2 · 仅授权车机（ADB）");
+        styleButton(btnCarGrant, R.drawable.btn_primary, 0xFFFFFFFF);
+        btnCarGrant.setOnClickListener(v -> startCarAdbSetup());
+        box.addView(btnCarGrant);
+        btnCarAdb = btnCarGrant;
+
+        /* 3 安装车机 APK（含授权，与「仅授权」分离） */
         btnCarInstall = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnCarInstall.setText("2 · 一键安装并授权（ADB）");
+        btnCarInstall.setText("3 · 安装车机 APK（ADB）");
         styleButton(btnCarInstall, R.drawable.btn_primary, 0xFFFFFFFF);
         btnCarInstall.setOnClickListener(v -> startCarAdbInstall());
         box.addView(btnCarInstall);
-        btnCarAdb = btnCarInstall; /* 兼容旧字段引用 */
 
-        /* 3 启停推送 */
+        /* 4 启停推送 */
         btnService = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnService.setText("3 · 启动推送服务");
+        btnService.setText("4 · 启动推送服务");
         styleButton(btnService, R.drawable.btn_primary, 0xFFFFFFFF);
         btnService.setOnClickListener(v -> toggleService());
         box.addView(btnService);
 
-        /* 4 检查更新 */
+        /* 5 检查更新 */
         Button btnUpd = new Button(new android.view.ContextThemeWrapper(this,
                 android.R.style.Widget_Material_Button_Borderless), null, 0);
-        btnUpd.setText("4 · 检查更新（GitHub）");
+        btnUpd.setText("5 · 检查更新（GitHub）");
         styleButton(btnUpd, R.drawable.btn_primary, 0xFFFFFFFF);
         btnUpd.setOnClickListener(v -> UpdateChecker.checkAndPrompt(this,
                 BuildConfig.VERSION_NAME, false));
@@ -231,8 +240,10 @@ public class PhoneMainActivity extends Activity {
         box.addView(wx);
 
         TextView tip = new TextView(this);
-        tip.setText("ADB：手机开热点 → 车机连上 → 点「一键安装并授权」\n"
-                + "也可填车机 IP 直连（如 10.235.172.177）");
+        tip.setText("ADB：手机开热点 → 车机连上\n"
+                + "· 只授权：点「2 · 仅授权车机」\n"
+                + "· 装 APK：点「3 · 安装车机 APK」（内含授权）\n"
+                + "也可填车机 IP 直连（如 10.253.168.197）");
         tip.setTextColor(C_TEXT_DIM);
         tip.setTextSize(11);
         tip.setPadding(dp(8), dp(4), dp(8), 0);
@@ -267,7 +278,7 @@ public class PhoneMainActivity extends Activity {
         lp.topMargin = dp(12);
         box.setLayoutParams(lp);
         TextView cap = new TextView(this);
-        cap.setText("一键安装日志");
+        cap.setText("ADB 安装 / 授权日志");
         cap.setTextColor(C_TEXT);
         cap.setTextSize(14);
         box.addView(cap);
@@ -298,13 +309,15 @@ public class PhoneMainActivity extends Activity {
         runAdbFlow(true);
     }
 
-    /** install=true 走下载+安装+授权；界面已合并为「一键安装并授权」 */
+    /** install=true 走下载+安装+授权；false 只做 ADB 授权，不装 APK */
     private void runAdbFlow(boolean install) {
         if (carAdbRunning) return;
         carAdbRunning = true;
         String manual = etCarIp.getText() == null ? "" : etCarIp.getText().toString().trim();
-        Button btn = btnCarInstall;
-        btn.setText("2 · 安装并授权中…");
+        final Button btn = install ? btnCarInstall : btnCarGrant;
+        final String busy = install ? "3 · 安装车机中…" : "2 · 授权车机中…";
+        final String idle = install ? "3 · 安装车机 APK（ADB）" : "2 · 仅授权车机（ADB）";
+        btn.setText(busy);
         tvCarAdbLog.setVisibility(View.VISIBLE);
         tvCarAdbLog.setText(manual.isEmpty() ? "请保持手机热点开启、车机已连接…\n" : "直连 " + manual + "…\n");
         final StringBuilder log = new StringBuilder();
@@ -313,7 +326,7 @@ public class PhoneMainActivity extends Activity {
             @Override public void onDone(boolean ok, String summary) {
                 ui.post(() -> {
                     carAdbRunning = false;
-                    btn.setText("2 · 一键安装并授权（ADB）");
+                    btn.setText(idle);
                     log.append(ok ? "[完成] " : "[失败] ").append(summary).append('\n');
                     if (tvCarAdbLog != null) tvCarAdbLog.setText(log.toString());
                     android.widget.Toast.makeText(PhoneMainActivity.this, summary,
@@ -325,7 +338,7 @@ public class PhoneMainActivity extends Activity {
         else CarAdbSetup.runAsync(this, manual, cb);
     }
 
-    /** 微信赞赏码（车机端改用按钮 2 一键 ADB 安装） */
+    /** 微信赞赏码（安装/授权见按钮 2、3） */
     private View buildTipCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
