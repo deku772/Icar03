@@ -308,17 +308,26 @@ public class OverlayService extends Service {
         } catch (Throwable ignored) {}
     }
 
-    private void pushOnlineProgress() {
-        if (!SRC_ONLINE.equals(getLyricsSourceMode())) return;
+    /** 本地时间轴进度推给渲染层。蓝牙模式也必须推：
+     *  否则 BLE 进度包一停，WebView 的 nowMs() 冻在 last position，歌词整层卡住。 */
+    private void pushLocalProgress(boolean force) {
         if (!localReady) return;
+        long ln = localNow();
+        if (ln < 0 && !force) return;
+        if (ln < 0) ln = localPosMs;
         try {
             org.json.JSONObject p = new org.json.JSONObject();
             p.put("type", "progress");
-            p.put("positionMs", localNow());
+            p.put("positionMs", ln);
             p.put("playing", localPlaying);
             if (onlineDurationMs > 0) p.put("durationMs", onlineDurationMs);
             push(p.toString());
         } catch (Exception ignored) {}
+    }
+
+    private void pushOnlineProgress() {
+        if (!SRC_ONLINE.equals(getLyricsSourceMode())) return;
+        pushLocalProgress(false);
     }
 
     public static boolean isDebug() {
@@ -407,7 +416,17 @@ public class OverlayService extends Service {
         long now = System.currentTimeMillis();
         if (now - lastScenePoll < 1000) return;
         lastScenePoll = now;
-        String m = scene.poll(this);
+        /* 优先左上角切换键（事件驱动，省电）；键未知时才回退 UsageStats */
+        DisplayPolicy.refreshAll(this);
+        int ls = DisplayPolicy.launcherState();
+        String m;
+        if (ls == 2) {
+            m = SceneDetector.MODE_MAP;
+        } else if (ls == 1) {
+            m = SceneDetector.MODE_WALLPAPER;
+        } else {
+            m = scene.poll(this);
+        }
         if (!m.equals(sceneMode)) {
             sceneMode = m;
             pushScene(m);
@@ -454,12 +473,25 @@ public class OverlayService extends Service {
             MediaSessionManager msm = (MediaSessionManager) getSystemService(MEDIA_SESSION_SERVICE);
             if (msm == null) return;
             List<MediaController> list = msm.getActiveSessions(CarMediaListener.COMPONENT);
+            boolean sawBt = false;
             for (MediaController c : list) {
                 String pkg = c.getPackageName();
                 if (pkg == null || !pkg.contains("bluetooth")) continue;
                 PlaybackState ps = c.getPlaybackState();
                 if (ps == null) continue;
-                if (ps.getState() != PlaybackState.STATE_PLAYING) continue;
+                sawBt = true;
+                if (ps.getState() != PlaybackState.STATE_PLAYING) {
+                    /* 暂停/停止：立刻让渲染层停表，否则 localPlaying 残留 true 会空跑 */
+                    if (localPlaying || localReady) {
+                        localPlaying = false;
+                        if (localReady) {
+                            localPosMs = Math.max(0, ps.getPosition());
+                            localSyncAt = System.currentTimeMillis();
+                            pushLocalProgress(true);
+                        }
+                    }
+                    return;
+                }
                 long pos = Math.max(0, ps.getPosition());
                 long now = System.currentTimeMillis();
                 if (localReady && pos == localPosMs) {
@@ -473,8 +505,13 @@ public class OverlayService extends Service {
                 localPlaying = true;
                 localReady = true;
                 maybeFetchOnlineLyrics(c);
-                pushOnlineProgress();
+                /* 蓝牙/在线都推本地进度，避免 BLE 停包后歌词冻住 */
+                pushLocalProgress(true);
                 return;   /* 取第一个蓝牙栈会话即可 */
+            }
+            if (!sawBt && localPlaying) {
+                localPlaying = false;
+                pushLocalProgress(true);
             }
         } catch (Exception e) {
             /* SecurityException：通知使用权未授权（adb cmd notification allow_listener） */

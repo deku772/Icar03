@@ -119,7 +119,13 @@ public class BleService extends Service {
     /* ---------------- 连接管理 ---------------- */
 
     private void startConnect() {
-        if (userStopped || subscribed || scanning || gatt != null) return;
+        if (userStopped || subscribed || scanning) return;
+        /* 僵尸 GATT：connectGatt 成功但握手回调被栈丢掉时 gatt 一直非空，
+           原先直接 return 会永久停扫。此处强制拆掉未完成握手的连接。 */
+        if (gatt != null) {
+            Log.w(TAG, "stale gatt without subscribe, force close");
+            closeGatt();
+        }
 
         BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = (bm == null) ? null : bm.getAdapter();
@@ -254,10 +260,21 @@ public class BleService extends Service {
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "connected to phone");
+                /* 看门狗覆盖到订阅完成：onMtuChanged/onServicesDiscovered
+                   可能因 ContextMap/Unhandled event 再也不回来。 */
                 main.removeCallbacks(connectWatchdog);
+                main.postDelayed(connectWatchdog, CONNECT_WATCHDOG_MS);
                 advState = "已连接，协商MTU…";
                 reportState();
-                g.requestMtu(MTU_REQUEST);
+                try {
+                    g.requestMtu(MTU_REQUEST);
+                } catch (Exception e) {
+                    Log.w(TAG, "requestMtu failed", e);
+                    closeGatt();
+                    advState = "MTU请求失败";
+                    reportState();
+                    scheduleRetry();
+                }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.w(TAG, "phone disconnected status=" + status);
                 reassembler.reset();
@@ -271,11 +288,27 @@ public class BleService extends Service {
 
         @Override
         public void onMtuChanged(BluetoothGatt g, int mtu, int status) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.w(TAG, "MTU request failed status=" + status);
+                advState = "MTU协商失败(" + status + ")";
+                reportState();
+                closeGatt();
+                scheduleRetry();
+                return;
+            }
             BleService.this.mtu = Math.max(23, mtu);
             Log.i(TAG, "MTU=" + mtu + " status=" + status);
             advState = "MTU=" + BleService.this.mtu + "，发现服务…";
             reportState();
-            g.discoverServices();
+            try {
+                g.discoverServices();
+            } catch (Exception e) {
+                Log.w(TAG, "discoverServices failed", e);
+                closeGatt();
+                advState = "服务发现发起失败";
+                reportState();
+                scheduleRetry();
+            }
         }
 
         @Override
@@ -321,9 +354,10 @@ public class BleService extends Service {
                 return;
             }
             subscribed = true;
+            main.removeCallbacks(connectWatchdog);
             retryIndex = 0;
             reassembler.reset();
-            advState = "已连接手机(MTU=" + mtu + ")，等待推送";
+            advState = "已连接手机(MTU=" + mtu + ")";
             reportState();
             /* 订阅成功后继续订阅进度/指令特征（失败不影响歌词主链路） */
             if (chProgress != null) subscribe(g, chProgress);
@@ -412,6 +446,7 @@ public class BleService extends Service {
                 org.json.JSONObject o = new org.json.JSONObject();
                 o.put("type", "conn");
                 o.put("advState", advState);
+                o.put("connected", subscribed);
                 OverlayService.push(o.toString());
             } catch (Exception ignored) {}
         });

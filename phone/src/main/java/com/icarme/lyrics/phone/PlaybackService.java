@@ -127,6 +127,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
     };
 
     private String curKey = "";        /* track|artist 去重 */
+    private String prevKey = "";       /* 刚离开的曲目，用于挡蓝牙栈旧元数据回灌 */
+    private long prevKeyLeftAt = 0;
     private long curDuration = 0;
     private long lastPos = 0;
     private boolean lastPlaying = false;
@@ -285,13 +287,44 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         if (ps != null) {
             long pos = ps.getPosition();
             boolean playing = ps.getState() == PlaybackState.STATE_PLAYING;
-            /* 自然切歌：进度从高位回落到起点 → 立刻清车机旧词，再走元数据换歌 */
-            if (playing && lastPlaying && lastPos > 15000 && pos < 3000) {
+            /* 切歌/手动选曲：进度回跳到起点 → 立刻清车机旧词，再走元数据换歌 */
+            if (playing && lastPlaying && lastPos - pos > 8000 && pos < 5000) {
                 pushClearCmd();
             }
             emitProgress(ps);
         }
-        emitTrack(c.getMetadata());
+        emitTrack(pickFreshestMetadata(c));
+    }
+
+    /**
+     * 手动选曲时，音乐 App 会话的元数据往往比 com.android.bluetooth 更新。
+     * 若任一会话曲目 ≠ curKey，优先采信它（非蓝牙包名优先），避免只盯蓝牙栈旧歌。
+     */
+    private MediaMetadata pickFreshestMetadata(MediaController fallback) {
+        MediaMetadata best = null;
+        boolean bestIsNonBt = false;
+        try {
+            List<MediaController> list = smm.getActiveSessions(NotificationListener.COMPONENT);
+            if (list != null) {
+                for (MediaController ctl : list) {
+                    MediaMetadata md = ctl.getMetadata();
+                    if (md == null) continue;
+                    String track = textOf(md, MediaMetadata.METADATA_KEY_TITLE);
+                    if (track == null || track.isEmpty()) continue;
+                    String artist = textOf(md, MediaMetadata.METADATA_KEY_ARTIST);
+                    String key = track + "|" + (artist == null ? "" : artist);
+                    if (key.equals(curKey)) continue;
+                    String pkg = ctl.getPackageName();
+                    boolean nonBt = pkg == null || !pkg.contains("bluetooth");
+                    if (best == null || (nonBt && !bestIsNonBt)) {
+                        best = md;
+                        bestIsNonBt = nonBt;
+                    }
+                    if (nonBt) break;
+                }
+            }
+        } catch (Exception ignored) {}
+        return best != null ? best : (fallback != null ? fallback.getMetadata() : null);
     }
 
     /** 会话挑选：正在播放 > 蓝牙栈 > 有元数据（显式组件名，不依赖监听服务绑定） */
@@ -356,6 +389,15 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         if (key.equals(curKey)) {
             if (durationMs > 0) curDuration = durationMs;
             return;
+        }
+        /* 手动切歌后蓝牙栈可能短暂回灌上一首元数据：3s 内忽略「刚离开的曲目」 */
+        if (!prevKey.isEmpty() && key.equals(prevKey)
+                && System.currentTimeMillis() - prevKeyLeftAt < 3000) {
+            return;
+        }
+        if (!curKey.isEmpty()) {
+            prevKey = curKey;
+            prevKeyLeftAt = System.currentTimeMillis();
         }
         curKey = key;
         curDuration = durationMs;
@@ -520,8 +562,11 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         mon.fetchState = "取词中";
         mon.lrcPreview = "";
         mon.lrcFull = "";   /* 手机预览先清 */
-        /* 立刻清车机旧词，避免自然切歌后继续滚上一首 */
-        pushClearCmd();
+        /* 仅切歌时清车机旧词；同曲补推/重连不得 clear，否则空窗 */
+        String key = t + "|" + art;
+        if (!key.equals(lastLyricsKey)) {
+            pushClearCmd();
+        }
         updateNotification("取词中: " + t);
         main.post(() -> new Thread(() -> {
             LyricsFetcher.Result r = fetcher.fetch(t, art,
@@ -556,6 +601,8 @@ public class PlaybackService extends Service implements NotificationListener.Cal
                 if (seq != fetchSeq) return; /* 推送前又换了歌 */
                 if (pushed) {
                     mon.pushCount++;
+                    lastLyricsJson = msg.toString();
+                    lastLyricsKey = key;
                     updateNotification("已推送: " + t + " (" + r.source + ")");
                 } else {
                     updateNotification("BLE 未就绪，未推送: " + t);
@@ -601,6 +648,9 @@ public class PlaybackService extends Service implements NotificationListener.Cal
      * 避免不放歌时持续 BLE 写入/ACK 空转（恢复播放或 seek 立即恢复推送） */
     private long lastPushedPos = -1;
     private boolean lastPushedPlaying = false;
+    /** 最近一次成功推送的歌词包，重连/恢复播放时原样补推，避免先 clear 再取词导致车机空窗 */
+    private String lastLyricsJson = "";
+    private String lastLyricsKey = "";
 
     private synchronized void startProgressTask() {
         if (progressTask != null || ble == null) return; /* 已在跑 */
@@ -664,11 +714,27 @@ public class PlaybackService extends Service implements NotificationListener.Cal
         if ("connected".equals(state)) {
             lastBleConnectedTs = System.currentTimeMillis();
             bleEverConnected = true;
-            if (!curKey.isEmpty()) {
-                /* 连接建立时若已在放歌：立即补推当前曲目（不等下一首） */
-                String[] parts = curKey.split("\\|", 2);
-                updateNotification("已连接，补推当前曲目…");
-                fetchAndPush(parts[0], parts.length > 1 ? parts[1] : "", null, curDuration);
+            String key = curKey;
+            if (!key.isEmpty()) {
+                String[] parts = key.split("\\|", 2);
+                String track = parts[0];
+                String artist = parts.length > 1 ? parts[1] : "";
+                /* 同曲已有推送包：原样补推，不 clear、不重新取词 */
+                if (key.equals(lastLyricsKey) && lastLyricsJson != null && !lastLyricsJson.isEmpty()) {
+                    updateNotification("已连接，补推歌词包…");
+                    new Thread(() -> {
+                        boolean ok = ble != null && ble.pushLyrics(lastLyricsJson);
+                        if (ok) {
+                            mon.pushCount++;
+                            updateNotification("已补推: " + track);
+                        } else {
+                            fetchAndPush(track, artist, null, curDuration);
+                        }
+                    }, "lyrics-repush").start();
+                } else {
+                    updateNotification("已连接，补推当前曲目…");
+                    fetchAndPush(track, artist, null, curDuration);
+                }
             } else {
                 updateNotification("车机已连接，等待播放…（放歌即推词）");
                 return;

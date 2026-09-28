@@ -28,22 +28,24 @@ public final class SceneDetector {
             "com.autonavi.minimap",
             "com.autonavi.amapauto",
             "com.autonavi.amapautojni",
-            "com.baidu.BaiduMap",
+            "com.autonavi.amapautopro",
+            "com.tencent.wecarnavi",
+            "com.tencent.map",
             "com.baidu.BaiduMap",
             "com.baidu.baidumap",
-            "com.tencent.map",
             "com.amap.android",
             "com.amap.loc",
             "ctrip.android.map",
             "com.here.app.maps",
             "com.sygic.truck",
             "com.sygic.aura",
-            "com.tomtom.gplay.navapp",
-            "com.autonavi.amapautopro"
+            "com.tomtom.gplay.navapp"
     ));
 
     private String lastPkg = "";
     private String lastMode = MODE_WALLPAPER;
+    /** 最近一次可信前台包；UsageEvents 窗口查不到时沿用，避免误判回壁纸 */
+    private String lastKnownFgPkg = "";
 
     public String lastMode() { return lastMode; }
 
@@ -72,14 +74,15 @@ public final class SceneDetector {
         return MODE_WALLPAPER;
     }
 
-    private static String topPackage(Context ctx) {
-        /* 1) UsageStats（需授权，最准） */
+    private String topPackage(Context ctx) {
+        /* 1) UsageStats：窗口放宽到 3 分钟。
+           只查 15s 时，地图开久了查不到 FG 事件，会误判回壁纸导致歌词回跳。 */
         try {
             UsageStatsManager usm = (UsageStatsManager)
                     ctx.getSystemService(Context.USAGE_STATS_SERVICE);
             if (usm != null) {
                 long now = System.currentTimeMillis();
-                UsageEvents evs = usm.queryEvents(now - 15000, now);
+                UsageEvents evs = usm.queryEvents(now - 180000L, now);
                 UsageEvents.Event e = new UsageEvents.Event();
                 String pkg = null;
                 while (evs.hasNextEvent()) {
@@ -89,11 +92,17 @@ public final class SceneDetector {
                         pkg = e.getPackageName();
                     }
                 }
-                if (pkg != null) return pkg;
+                if (pkg != null && !pkg.isEmpty()) {
+                    lastKnownFgPkg = pkg;
+                    return pkg;
+                }
             }
         } catch (Throwable ignored) {}
 
-        /* 2) RunningAppProcesses 兜底（部分车机仍给） */
+        /* 2) 沿用上次可信前台，禁止 RunningAppProcesses 把场景打回壁纸 */
+        if (!lastKnownFgPkg.isEmpty()) return lastKnownFgPkg;
+
+        /* 3) 兜底：RunningAppProcesses（Android 9 常只给自身进程，不可靠） */
         try {
             android.app.ActivityManager am = (android.app.ActivityManager)
                     ctx.getSystemService(Context.ACTIVITY_SERVICE);
@@ -104,7 +113,9 @@ public final class SceneDetector {
                     for (android.app.ActivityManager.RunningAppProcessInfo p : procs) {
                         if (p.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
                                 && p.pkgList != null && p.pkgList.length > 0) {
-                            return p.pkgList[0];
+                            String cand = p.pkgList[0];
+                            if (cand != null && cand.equals(ctx.getPackageName())) continue;
+                            return cand;
                         }
                     }
                 }

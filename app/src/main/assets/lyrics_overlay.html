@@ -146,6 +146,7 @@ var S = {
   connected:false, advState:'', rxFrag:0, rxFrame:0, rxProg:0, rxBrief:'',
   demo:false, loop:true,
   lastActiveAt:0, idleHideMs:10000, idleHidden:false,
+  lastTickAt:0,
   debug:false
 };
 
@@ -508,14 +509,40 @@ function findLine(t){
 }
 
 function tick(){
-  if (S.lines.length){
-    var t = nowMs();
-    var idx = findLine(t);
-    if (idx < 0) idx = 0;
-    if (idx !== S.cur) switchTo(idx);
-    evaluateIdleHide();
+  try {
+    if (S.lines.length){
+      var t = nowMs();
+      var idx = findLine(t);
+      if (idx < 0) idx = 0;
+      if (idx !== S.cur) switchTo(idx);
+      evaluateIdleHide();
+    }
+  } catch (e) {
+    /* 单帧异常绝不能杀死 rAF 链 */
+    if (window.console && console.warn) console.warn('tick', e);
   }
+  S.lastTickAt = Date.now();
   requestAnimationFrame(tick);
+}
+
+/* rAF 在车机 WebView 上可能被静默停掉：用 setInterval 做第二心跳 */
+function heartbeat(){
+  try {
+    if (S.lines.length){
+      var t = nowMs();
+      var idx = findLine(t);
+      if (idx < 0) idx = 0;
+      if (idx !== S.cur) switchTo(idx);
+      evaluateIdleHide();
+    }
+    /* rAF 超过 2s 没跑 → 重新挂上 */
+    if (!S.lastTickAt || Date.now() - S.lastTickAt > 2000){
+      S.lastTickAt = Date.now();
+      requestAnimationFrame(tick);
+    }
+  } catch (e) {
+    if (window.console && console.warn) console.warn('hb', e);
+  }
 }
 
 /** 暂停或未连蓝牙 10s 后隐藏悬浮歌词；恢复播放/连接立即显示 */
@@ -529,7 +556,8 @@ function markActive(){
 
 function evaluateIdleHide(){
   if (S.demo || !S.lines.length) return;
-  var live = S.playing && S.connected;
+  /* 暂停时保留歌词（只压暗），仅长时间无连接/无播放才淡出 */
+  var live = S.playing || (S.connected && S.lines.length > 0);
   if (live){
     markActive();
     return;
@@ -615,7 +643,8 @@ function boot(){
   }
   layoutMetrics();
   requestAnimationFrame(tick);
-  if (!S.demo) notify({ event:'ready', data:{ version:'2.1.0' } });
+  setInterval(heartbeat, 500);
+  if (!S.demo) notify({ event:'ready', data:{ version:'2.1.1' } });
 }
 window.addEventListener('resize', function(){ layoutMetrics(); positionToCurrent(true); });
 window.addEventListener('orientationchange', function(){ setTimeout(function(){ layoutMetrics(); positionToCurrent(true); },200); });

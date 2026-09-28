@@ -110,7 +110,10 @@ public final class LyricsSettingsRenderer {
         }));
 
         box.addView(UiKit.groupTitle(c, "歌词来源"));
-        box.addView(UiKit.groupDesc(c, "蓝牙推送：手机取词后 BLE 推到车机（零车机流量）。在线获取：车机自己联网取词（需车机有流量/Wi‑Fi）。"));
+        boolean online = "online".equals(OverlayService.getLyricsSourceMode());
+        box.addView(UiKit.groupDesc(c, online
+                ? "在线获取：车机自己联网取词。请先关闭手机音乐软件的「车载蓝牙歌词」，否则会和本应用抢词/重复显示。"
+                : "蓝牙推送：手机取词后 BLE 推到车机（零车机流量）。"));
         String src = OverlayService.getLyricsSourceMode();
         int srcIdx = "online".equals(src) ? 1 : 0;
         box.addView(UiKit.segmented(c, new String[]{"蓝牙推送", "在线获取"}, srcIdx,
@@ -126,10 +129,11 @@ public final class LyricsSettingsRenderer {
                 }));
 
         box.addView(UiKit.groupTitle(c, "显示模式"));
-        box.addView(UiKit.groupDesc(c, "自动：地图/TBT 时隐身避让；始终显示：不因地图隐藏；原车规则：贴近 03 歌词避让。"));
+        box.addView(UiKit.groupDesc(c, "自动：地图时隐藏歌词；始终显示：不因地图隐藏。"));
         String dm = OverlayService.getDisplayMode();
-        int dmIdx = "always".equals(dm) ? 1 : "car".equals(dm) ? 2 : 0;
-        box.addView(UiKit.segmented(c, new String[]{"自动", "始终显示", "原车规则"}, dmIdx,
+        if ("car".equals(dm)) dm = "auto"; /* 旧配置迁移 */
+        int dmIdx = "always".equals(dm) ? 1 : 0;
+        box.addView(UiKit.segmented(c, new String[]{"自动", "始终显示"}, dmIdx,
                 new UiKit.Action[]{
                         () -> {
                             OverlayService.setDisplayMode("auto");
@@ -137,10 +141,6 @@ public final class LyricsSettingsRenderer {
                         },
                         () -> {
                             OverlayService.setDisplayMode("always");
-                            host.refreshChrome();
-                        },
-                        () -> {
-                            OverlayService.setDisplayMode("car");
                             host.refreshChrome();
                         }
                 }));
@@ -218,25 +218,26 @@ public final class LyricsSettingsRenderer {
         boolean overlayPerm = android.provider.Settings.canDrawOverlays(c);
         boolean svc = OverlayService.running;
         boolean ble = BleService.running;
-        String conn = BleService.advState;
-        String phone = BleService.phoneMacText();
 
-        box.addView(UiKit.infoRow(c, "悬浮窗权限", overlayPerm ? "已授予" : "未授予（见「关于」ADB 帮助）"));
+        /* 连接文案：订阅后若仍在收词，不要再写「等待推送」 */
+        String conn = BleService.advState;
+        long sinceRx = System.currentTimeMillis() - BleService.lastFragMs;
+        if (BleService.frameCount > 0 && BleService.lastFragMs > 0 && sinceRx < 20000) {
+            conn = "已连接 · 推送中";
+        } else if (BleService.frameCount > 0 && conn != null && conn.contains("等待推送")) {
+            conn = "已连接 · 已收 " + BleService.frameCount + " 帧";
+        }
+
+        box.addView(UiKit.infoRow(c, "悬浮窗权限", overlayPerm ? "已授予" : "未授予（见「关于」）"));
         box.addView(UiKit.infoRow(c, "悬浮歌词服务", svc ? "运行中" : "已停止"));
         box.addView(UiKit.infoRow(c, "BLE 接收", ble ? "运行中" : "已停止"));
         box.addView(UiKit.infoRow(c, "歌词来源", OverlayService.lyricsSourceStatus()));
         box.addView(UiKit.infoRow(c, "连接状态", conn == null || conn.isEmpty() ? "未启动" : conn));
-        box.addView(UiKit.infoRow(c, "手机地址", phone));
+        box.addView(UiKit.infoRow(c, "本机 IP（ADB）",
+                com.icarme.lyrics.AdbHelper.localIpText()));
 
-        Integer sceneTop = com.icarme.lyrics.IcarA11yService.leftSceneTopPx;
-        box.addView(UiKit.infoRow(c, "地图/TBT 避让",
-                com.icarme.lyrics.DisplayPolicy.tbtShow() == 1
-                        ? ("TBT 显示中 · guide=" + com.icarme.lyrics.DisplayPolicy.tbtGuide()
-                        + " · 模式=" + OverlayService.getDisplayMode())
-                        : ("无 TBT 卡 · 模式=" + OverlayService.getDisplayMode())));
-        box.addView(UiKit.infoRow(c, "系统组件层", OverlayService.a11yStatusText()));
         box.addView(UiKit.actionCard(c, "打开系统无障碍设置",
-                "授权「IcarLyrics」后，才能读取座椅/雨刮等场景层几何。",
+                "可选：授权后避让更准，歌词主链路不依赖。",
                 () -> {
                     try {
                         android.content.Intent i = new android.content.Intent(

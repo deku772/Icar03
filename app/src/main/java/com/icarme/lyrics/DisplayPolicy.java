@@ -22,6 +22,8 @@ public final class DisplayPolicy {
     public static final String KEY_WINDOW_MODE =
             "com.mengbo.launcher3.settings.secure.window_mode";
     public static final String KEY_AC_PAGE = "global_setting_ac_page_status";
+    /** 左上角切换壁纸/地图会改这个 Global 键：1=壁纸 2=地图（实机采样） */
+    public static final String KEY_LAUNCHER_STATE = "com.mengbo.launcher3.SETTINGS_KEY_LAUNCHER_STATE";
 
     private static final int MAP_INSET_GUIDE_ACTIVE = 178;
     private static final int MAP_INSET_GUIDE_OTHER = 322;
@@ -39,6 +41,7 @@ public final class DisplayPolicy {
     private static volatile int tbtGuide = 0;
     private static volatile int windowMode = -1;
     private static volatile int acPage = -1;
+    private static volatile int launcherState = -1;
     /** auto=按场景避让；always=始终显示壁纸歌词；car=贴近原车（地图/TBT 隐藏） */
     private static volatile String displayMode = "auto";
 
@@ -85,6 +88,7 @@ public final class DisplayPolicy {
         resolver = ctx.getContentResolver();
         tbtShow = readSecureInt(KEY_TBT_SHOW, 0);
         tbtGuide = readSecureInt(KEY_TBT_GUIDE, 0);
+        launcherState = readSecureInt(KEY_LAUNCHER_STATE, -1);
         if (observer != null) return;
         observer = new ContentObserver(new Handler(Looper.getMainLooper())) {
             @Override public void onChange(boolean selfChange) {
@@ -92,15 +96,17 @@ public final class DisplayPolicy {
                 int g = readSecureInt(KEY_TBT_GUIDE, 0);
                 int wm = readSecureInt(KEY_WINDOW_MODE, -1);
                 int ac = readSecureInt(KEY_AC_PAGE, -1);
+                int ls = readSecureInt(KEY_LAUNCHER_STATE, -1);
                 boolean changed = (s != tbtShow || g != tbtGuide
-                        || wm != windowMode || ac != acPage);
+                        || wm != windowMode || ac != acPage || ls != launcherState);
                 tbtShow = s;
                 tbtGuide = g;
                 windowMode = wm;
                 acPage = ac;
+                launcherState = ls;
                 if (changed) {
                     Log.i(TAG, "TBT show=" + s + " guide=" + g
-                            + " window=" + wm + " ac=" + ac);
+                            + " window=" + wm + " ac=" + ac + " launcher=" + ls);
                 }
                 if (onChanged != null) onChanged.run();
             }
@@ -109,6 +115,8 @@ public final class DisplayPolicy {
         register(Settings.Secure.getUriFor(KEY_TBT_GUIDE));
         register(Settings.Secure.getUriFor(KEY_WINDOW_MODE));
         register(Settings.Global.getUriFor(KEY_AC_PAGE));
+        register(Settings.Global.getUriFor(KEY_LAUNCHER_STATE));
+        register(Settings.Secure.getUriFor(KEY_LAUNCHER_STATE));
         try {
             register(Settings.Global.getUriFor(KEY_TBT_SHOW));
             register(Settings.Global.getUriFor(KEY_TBT_GUIDE));
@@ -128,7 +136,13 @@ public final class DisplayPolicy {
         tbtGuide = readSecureInt(KEY_TBT_GUIDE, 0);
         windowMode = readSecureInt(KEY_WINDOW_MODE, -1);
         acPage = readSecureInt(KEY_AC_PAGE, -1);
+        launcherState = readSecureInt(KEY_LAUNCHER_STATE, -1);
     }
+
+    /** 左上角键切换结果：1=壁纸(显示歌词) 2=地图(隐藏) */
+    public static int launcherState() { return launcherState; }
+
+    public static boolean isMapByLauncher() { return launcherState == 2; }
 
     private static void register(android.net.Uri uri) {
         if (resolver == null || observer == null || uri == null) return;
@@ -223,22 +237,24 @@ public final class DisplayPolicy {
             mapInset = Math.max(mapInset, Math.round(140 * sy));
         }
 
-        boolean sceneMap = SceneDetector.MODE_MAP.equals(sceneMode);
+        boolean sceneMap = SceneDetector.MODE_MAP.equals(sceneMode) || isMapByLauncher();
         boolean tbtMap = (tbtShow == 1);
         boolean always = MODE_ALWAYS.equals(displayMode);
         boolean car = MODE_CAR.equals(displayMode);
+        boolean mapRisk = sceneMap || tbtMap;
 
         /*
-         * 避让语义（修正颠倒）：
-         *  auto  = 仅当前台判定为地图包时隐藏；壁纸/其它一律显示
-         *  car   = 地图包或 TBT 卡显示时隐藏（更贴近原车）
-         *  always= 永不隐藏；地图时也从「状态栏下方」起排，而不是半屏中部
+         * 显示策略（按用户约定）：
+         *  地图前台 = 直接不显示歌词（不做底部躲闪）
+         *  壁纸/其它 = 正常显示；TBT 卡只压顶部 inset，不当地图隐藏
+         *  always   = 永不隐藏
+         *  car      = 地图或 TBT 时隐藏（更贴近原车）
          */
         boolean shouldHide;
         if (always) {
             shouldHide = false;
         } else if (car) {
-            shouldHide = sceneMap || tbtMap;
+            shouldHide = mapRisk;
         } else {
             shouldHide = sceneMap;
         }
