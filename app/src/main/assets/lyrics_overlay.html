@@ -16,6 +16,10 @@
    *   - 阴影/渐隐/呼吸全部走 CSS（text-shadow/mask/animation）
    *   - 放弃逐字卡拉OK填充（行级同步），这是流畅的关键取舍
    * 数据协议不变：IcarJS.onLyrics/onProgress/onCmd
+   *
+   * v2.8 渲染调整：
+   *   - 当前行（中间三行正中）不再用重字重+大阴影强调，改为强调色区分
+   *   - 相邻两行用较浅一档焦点色，当前行用亮一档强调色，层次更清晰
    * ============================================================ */
   :root{
     --fs: 34px; --fs-near: 40px; --fs-active: 48px; --fs-trans: 19px; --pad: 13px;
@@ -71,12 +75,12 @@
     font-weight:560;opacity:.85;}
   body.has-trans .line.has-trans{line-height:calc(var(--line-h) * 0.72);}
   body.has-trans .line.has-trans .trans{display:block;}
-  .line.near{color:var(--focus);}
+  .line.near{color:var(--focus-near);}
   .line.past{color:var(--past);}
-  /* 屏幕中央三行：同色同大，只用阴影区分当前行 */
+  /* 屏幕中央三行：相邻行浅一档焦点色，当前行亮强调色区分（不用重阴影） */
   .line.near .orig{font-size:var(--fs-active);}
-  .line.active{color:var(--focus);font-weight:820;}
-  .line.active .orig{font-size:var(--fs-active);text-shadow:var(--shadow);}
+  .line.active{color:var(--focus);font-weight:700;}
+  .line.active .orig{font-size:var(--fs-active);}
   .line.active .trans{color:var(--focus);font-weight:620;opacity:.9;}
   .line.near .trans{color:var(--focus);opacity:.75;}
   body.paused .line.active .orig{animation:breathe 2.4s ease-in-out infinite;}
@@ -224,6 +228,16 @@ function alignTrans(lines, tlyric){
 /* ---------------- JS 桥（Android 下发入口，协议与 v2.0 一致） ---------------- */
 function safeParse(json){ try { return JSON.parse(json); } catch(e){ return null; } }
 
+/* #RRGGBB → rgba(r,g,b,a)；非 hex 原样返回（兼容 rgb() 等写法） */
+function hexToRgba(hex, a){
+  var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(hex||'').trim());
+  if (!m) return hex;
+  var h = m[1];
+  if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  var n = parseInt(h, 16);
+  return 'rgba(' + ((n>>16)&255) + ',' + ((n>>8)&255) + ',' + (n&255) + ',' + a + ')';
+}
+
 function handleLyrics(msg){
   S.track = msg.track || '';
   if (msg.durationMs) S.durationMs = msg.durationMs;
@@ -323,9 +337,9 @@ function handleCmd(msg){
     updateVisibility();
   }
   else if (a === 'setAccent' && typeof msg.value === 'string'){
-    /* 设置页强调色注入：仅覆盖焦点色，不改白/黑正文色板 */
+    /* 设置页强调色注入：当前行用强调色，相邻行用 72% 透明同色（白/黑正文色板不变） */
     document.documentElement.style.setProperty('--focus', msg.value);
-    document.documentElement.style.setProperty('--focus-near', msg.value);
+    document.documentElement.style.setProperty('--focus-near', hexToRgba(msg.value, .72));
   }
   else if (a === 'setColor' && msg.value === 'system'){
     /* 跟随系统：焦点色交给 setAccent；正文保持浅色可读 */
@@ -334,7 +348,7 @@ function handleCmd(msg){
   }
   else if (a === 'setColor'){
     var c = msg.value;
-    /* [正文, 中央焦点, 相邻焦点, 已唱, 阴影] — 正文与焦点色必须拉开色相 */
+    /* [正文, 当前行强调, 相邻行焦点, 已唱, 阴影] — 当前行与相邻行颜色拉开层次 */
     var pal = {
       white: ['#FFFFFF', '#0066FF', '#3D8FFF', 'rgba(255,255,255,.40)', '0 2px 12px rgba(0,0,0,.75)'],
       black: ['#111111', '#FFB300', '#FFC84D', 'rgba(17,17,17,.42)', '0 2px 10px rgba(255,255,255,.5)'],

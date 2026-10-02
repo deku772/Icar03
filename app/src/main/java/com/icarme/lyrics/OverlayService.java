@@ -107,7 +107,7 @@ public class OverlayService extends Service {
 
     public static String getColor() {
         return IcarApp.get().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_COLOR, "system");
+                .getString(KEY_COLOR, "black");
     }
 
     public static void setColor(String color) {

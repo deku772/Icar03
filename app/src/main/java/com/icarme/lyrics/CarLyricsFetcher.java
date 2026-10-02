@@ -5,6 +5,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -13,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 歌词抓取（车机联网模式）：三源降级 + 内存缓存。
- *  1) lrclib.net  2) music.163.com  3) c.y.qq.com
+ *  1) music.163.com（默认）  2) c.y.qq.com（musicu.fcg 新搜索）  3) lrclib.net
  * 与手机端同源策略，供 OverlayService 在「在线歌词」模式下使用。
  */
 public final class CarLyricsFetcher {
@@ -53,9 +54,10 @@ public final class CarLyricsFetcher {
         String art = cleanText(artist);
         String trk = cleanText(track);
         StringBuilder fail = new StringBuilder();
-        Result r = tryLrclib(trk, art, durationSec, fail);
-        if (r == null) r = tryNetease(trk, art, fail);
+        /* 取词顺序：网易云（默认）→ QQ 音乐 → LRC(lrclib) 兜底 */
+        Result r = tryNetease(trk, art, fail);
         if (r == null) r = tryQq(trk, art, fail);
+        if (r == null) r = tryLrclib(trk, art, durationSec, fail);
         if (r != null && r.lrc != null && !r.lrc.isEmpty()) {
             cache.put(key, r);
             lastError = "";
@@ -69,6 +71,139 @@ public final class CarLyricsFetcher {
         if (s == null) return "";
         return s.trim().replaceAll("\\s+", " ").replace("<unknown>", "").trim();
     }
+
+    /* ---------------- 1) 网易云 ---------------- */
+
+    private Result tryNetease(String track, String artist, StringBuilder fail) {
+        try {
+            String q = track + (artist.isEmpty() ? "" : " " + artist);
+            JSONArray songs = neteaseSearch("https://music.163.com/api/cloudsearch/pc?s="
+                    + enc(q) + "&type=1&limit=8&offset=0");
+            if (songs == null || songs.length() == 0) {
+                songs = neteaseSearch("https://music.163.com/api/search/get/web?s="
+                        + enc(q) + "&type=1&limit=8");
+            }
+            if (songs == null || songs.length() == 0) {
+                fail.append("网易云无结果; ");
+                return null;
+            }
+            int tried = 0;
+            for (int i = 0; i < songs.length() && tried < MAX_CANDIDATES; i++) {
+                JSONObject song = songs.optJSONObject(i);
+                if (song == null) continue;
+                long songId = song.optLong("id", -1);
+                if (songId <= 0) continue;
+                tried++;
+                String lyricBody = httpGet(
+                        "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1&kv=1&tv=-1",
+                        "https://music.163.com/");
+                if (lyricBody == null) continue;
+                try {
+                    JSONObject lobj = new JSONObject(lyricBody);
+                    JSONObject lrcObj = lobj.optJSONObject("lrc");
+                    String lrc = lrcObj != null ? lrcObj.optString("lyric", "") : "";
+                    if (lrc.isEmpty() || !hasTimedLine(lrc)) continue;
+                    JSONObject tObj = lobj.optJSONObject("tlyric");
+                    String tlyric = tObj != null ? tObj.optString("lyric", "") : "";
+                    return new Result(lrc, tlyric.isEmpty() ? null : tlyric, "netease");
+                } catch (Exception ignored) {}
+            }
+            fail.append("网易云无时间轴词; ");
+        } catch (Exception e) {
+            fail.append("网易云异常; ");
+        }
+        return null;
+    }
+
+    private static JSONArray neteaseSearch(String url) {
+        String body = httpGet(url, "https://music.163.com/");
+        if (body == null) return null;
+        try {
+            JSONObject obj = new JSONObject(body);
+            JSONObject result = obj.optJSONObject("result");
+            if (result == null) return null;
+            return result.optJSONArray("songs");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /* ---------------- 2) QQ 音乐 ---------------- */
+
+    private Result tryQq(String track, String artist, StringBuilder fail) {
+        try {
+            String q = track + (artist.isEmpty() ? "" : " " + artist);
+            JSONArray songs = qqSearch(q);
+            if (songs == null || songs.length() == 0) {
+                fail.append("QQ无结果; ");
+                return null;
+            }
+            int tried = 0;
+            for (int i = 0; i < songs.length() && tried < MAX_CANDIDATES; i++) {
+                JSONObject s = songs.optJSONObject(i);
+                if (s == null) continue;
+                String mid = s.optString("mid", "");
+                if (mid == null || mid.isEmpty()) mid = s.optString("songmid", "");
+                if (mid == null || mid.isEmpty()) {
+                    JSONObject info = s.optJSONObject("info");
+                    if (info != null) {
+                        JSONObject md = info.optJSONObject("musicData");
+                        if (md != null) mid = md.optString("songmid", "");
+                    }
+                }
+                if (mid == null || mid.isEmpty()) continue;
+                tried++;
+                String lyricBody = httpGet(
+                        "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
+                                + "?songmid=" + mid + "&g_tk=5381&format=json&nobase64=1",
+                        "https://y.qq.com/");
+                if (lyricBody == null) continue;
+                try {
+                    JSONObject lobj = new JSONObject(lyricBody);
+                    String lrc = lobj.optString("lyric", "");
+                    if (lrc.isEmpty() || !hasTimedLine(lrc)) continue;
+                    String trans = lobj.optString("trans", "");
+                    return new Result(lrc, trans.isEmpty() ? null : trans, "qq");
+                } catch (Exception ignored) {}
+            }
+            fail.append("QQ无时间轴词; ");
+        } catch (Exception e) {
+            fail.append("QQ异常; ");
+        }
+        return null;
+    }
+
+    private static JSONArray qqSearch(String q) {
+        /* 旧接口 client_search_cp 已返回 500 失效，改用 musicu.fcg POST JSON，
+         * 歌曲字段为 mid。 */
+        String jsonBody = "{\"req_1\":{\"module\":\"music.search.SearchCgiService\","
+                + "\"method\":\"DoSearchForQQMusicDesktop\","
+                + "\"param\":{\"query\":\"" + jsonEscape(q) + "\",\"num_per_page\":8,"
+                + "\"page_num\":1,\"search_type\":0}}}";
+        String body = httpPostJson("https://u.y.qq.com/cgi-bin/musicu.fcg", jsonBody, "https://y.qq.com/");
+        if (body == null) return null;
+        try {
+            JSONObject obj = new JSONObject(body);
+            JSONObject req = obj.optJSONObject("req_1");
+            if (req == null) return null;
+            JSONObject data = req.optJSONObject("data");
+            if (data == null) return null;
+            JSONObject b = data.optJSONObject("body");
+            if (b == null) return null;
+            JSONObject song = b.optJSONObject("song");
+            if (song == null) return null;
+            return song.optJSONArray("list");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String jsonEscape(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /* ---------------- 3) LRC(lrclib) ---------------- */
 
     private Result tryLrclib(String track, String artist, int durationSec, StringBuilder fail) {
         Result r = parseLrclib(httpGet(
@@ -146,112 +281,6 @@ public final class CarLyricsFetcher {
         return sb.toString();
     }
 
-    private Result tryNetease(String track, String artist, StringBuilder fail) {
-        try {
-            String q = track + (artist.isEmpty() ? "" : " " + artist);
-            JSONArray songs = neteaseSearch("https://music.163.com/api/cloudsearch/pc?s="
-                    + enc(q) + "&type=1&limit=8&offset=0");
-            if (songs == null || songs.length() == 0) {
-                songs = neteaseSearch("https://music.163.com/api/search/get/web?s="
-                        + enc(q) + "&type=1&limit=8");
-            }
-            if (songs == null || songs.length() == 0) {
-                fail.append("网易云无结果; ");
-                return null;
-            }
-            int tried = 0;
-            for (int i = 0; i < songs.length() && tried < MAX_CANDIDATES; i++) {
-                JSONObject song = songs.optJSONObject(i);
-                if (song == null) continue;
-                long songId = song.optLong("id", -1);
-                if (songId <= 0) continue;
-                tried++;
-                String lyricBody = httpGet(
-                        "https://music.163.com/api/song/lyric?id=" + songId + "&lv=1&kv=1&tv=-1",
-                        "https://music.163.com/");
-                if (lyricBody == null) continue;
-                try {
-                    JSONObject lobj = new JSONObject(lyricBody);
-                    JSONObject lrcObj = lobj.optJSONObject("lrc");
-                    String lrc = lrcObj != null ? lrcObj.optString("lyric", "") : "";
-                    if (lrc.isEmpty() || !hasTimedLine(lrc)) continue;
-                    JSONObject tObj = lobj.optJSONObject("tlyric");
-                    String tlyric = tObj != null ? tObj.optString("lyric", "") : "";
-                    return new Result(lrc, tlyric.isEmpty() ? null : tlyric, "netease");
-                } catch (Exception ignored) {}
-            }
-            fail.append("网易云无时间轴词; ");
-        } catch (Exception e) {
-            fail.append("网易云异常; ");
-        }
-        return null;
-    }
-
-    private static JSONArray neteaseSearch(String url) {
-        String body = httpGet(url, "https://music.163.com/");
-        if (body == null) return null;
-        try {
-            JSONObject obj = new JSONObject(body);
-            JSONObject result = obj.optJSONObject("result");
-            if (result == null) return null;
-            return result.optJSONArray("songs");
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private Result tryQq(String track, String artist, StringBuilder fail) {
-        try {
-            String q = track + (artist.isEmpty() ? "" : " " + artist);
-            String searchUrl = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
-                    + "?ct=24&qqmusic_ver=1251&new_json=1&remoteplace=txt.yqq.top"
-                    + "&p=1&n=8&w=" + enc(q) + "&format=json";
-            String body = httpGet(searchUrl, "https://y.qq.com/");
-            if (body == null) {
-                fail.append("QQ搜索失败; ");
-                return null;
-            }
-            JSONObject data = new JSONObject(body).optJSONObject("data");
-            JSONObject song = data != null ? data.optJSONObject("song") : null;
-            JSONArray list = song != null ? song.optJSONArray("list") : null;
-            if (list == null || list.length() == 0) {
-                fail.append("QQ无结果; ");
-                return null;
-            }
-            int tried = 0;
-            for (int i = 0; i < list.length() && tried < MAX_CANDIDATES; i++) {
-                JSONObject s = list.optJSONObject(i);
-                if (s == null) continue;
-                String mid = s.optString("songmid", "");
-                if (mid.isEmpty()) {
-                    JSONObject info = s.optJSONObject("info");
-                    if (info != null) {
-                        JSONObject md = info.optJSONObject("musicData");
-                        if (md != null) mid = md.optString("songmid", "");
-                    }
-                }
-                if (mid.isEmpty()) continue;
-                tried++;
-                String lyricBody = httpGet(
-                        "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
-                                + "?songmid=" + mid + "&g_tk=5381&format=json&nobase64=1",
-                        "https://y.qq.com/");
-                if (lyricBody == null) continue;
-                try {
-                    JSONObject lobj = new JSONObject(lyricBody);
-                    String lrc = lobj.optString("lyric", "");
-                    if (lrc.isEmpty() || !hasTimedLine(lrc)) continue;
-                    String trans = lobj.optString("trans", "");
-                    return new Result(lrc, trans.isEmpty() ? null : trans, "qq");
-                } catch (Exception ignored) {}
-            }
-            fail.append("QQ无时间轴词; ");
-        } catch (Exception e) {
-            fail.append("QQ异常; ");
-        }
-        return null;
-    }
-
     private static boolean hasTimedLine(String lrc) {
         if (lrc == null || lrc.isEmpty()) return false;
         for (String ln : lrc.split("\n")) {
@@ -265,6 +294,44 @@ public final class CarLyricsFetcher {
             return URLEncoder.encode(s == null ? "" : s, "UTF-8");
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    /** POST JSON body（QQ musicu 新搜索接口用） */
+    private static String httpPostJson(String url, String jsonBody, String referer) {
+        HttpURLConnection conn = null;
+        try {
+            URL u = new URL(url);
+            conn = (HttpURLConnection) u.openConnection();
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("User-Agent", UA);
+            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            if (referer != null) {
+                conn.setRequestProperty("Referer", referer);
+                conn.setRequestProperty("Origin", referer.replaceAll("/$", ""));
+            }
+            byte[] body = jsonBody.getBytes("UTF-8");
+            conn.setFixedLengthStreamingMode(body.length);
+            OutputStream os = conn.getOutputStream();
+            os.write(body);
+            os.close();
+            int code = conn.getResponseCode();
+            if (code != 200) return null;
+            InputStream in = conn.getInputStream();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            in.close();
+            return out.toString("UTF-8");
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
         }
     }
 

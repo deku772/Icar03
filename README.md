@@ -1,6 +1,17 @@
+---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '4c16aed9-6a85-4f10-ab58-351b7c5be14e'
+  PropagateID: '4c16aed9-6a85-4f10-ab58-351b7c5be14e'
+  ReservedCode1: 'a1c154b5-72ea-4d88-8cb8-8f4784f27b89'
+  ReservedCode2: 'a1c154b5-72ea-4d88-8cb8-8f4784f27b89'
+---
+
 # IcarLyrics
 
-[![Release](https://img.shields.io/badge/release-v2.7.7-blue)](../../releases)
+[![Release](https://img.shields.io/badge/release-v2.8.0-blue)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬浮窗渲染**。  
@@ -8,7 +19,7 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 
 ```
 手机播放音乐（任意 App）
-  └─ 手机端：MediaSession 监控 → 三源取词（lrclib / 网易云 / QQ音乐）
+  └─ 手机端：MediaSession 监控 → 三源取词（网易云 / QQ音乐 / lrclib）
        └─ BLE GATT Server（Peripheral）Notify 推送歌词 / 进度
             └─ 车机端：GATT Client 按服务 UUID 扫描发现手机并自动连接
                  └─ 悬浮窗滚动歌词（中间三行焦点色放大 · 翻译 · 地图/壁纸双模式）
@@ -33,12 +44,12 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 
 **渲染**
 - 从屏幕上沿起滚，行数够后沉到屏幕中央
-- **中间三行**同放大约 2 号 + 焦点色（与正文色相拉开）
+- **中间三行**同放大约 2 号 + 当前行强调色（相邻行浅一档，不用重阴影）
 - 固定行高，滚动不抖；防时间轴回跳
 - 居左/居中/居右（居左离边约 2cm，不贴边）
 - **壁纸**：全屏多行正常显示；**地图**：整段隐藏（不做底部躲闪）
 - 显示模式仅「自动 / 始终显示」
-- 颜色：白 / 黑 / 蓝 / 绿 / 琥珀 / 粉
+- 颜色：黑 / 白 / 跟随系统（默认黑，浅色壁纸更清晰）
 
 **安装与自启**
 - 车机内嵌手机 APK，本地 HTTP `:18765` + 二维码分发
@@ -75,7 +86,7 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 | MTU | 固定 247 | 手机栈 `requestMtu(517)` 会被车机 512 上限打回，连带循环断连 |
 | 分片 | LE `frameId u16 + seq + total` | 对齐 `Reassembler`；乱序/重复/丢包可容 |
 | 写队列 | 单飞行真 ACK，歌词永不丢、进度可合并 | 防伪释放 |
-| 取词 | lrclib → 网易云 → QQ（手机端） | 车机零流量；需 Referer |
+| 取词 | 网易云 → QQ 音乐 → lrclib（手机端；车机在线模式同源） | 网易优先；QQ 用 musicu.fcg 新搜索接口；lrclib 兜底 |
 | 进度 | 车机 `MediaSession`（蓝牙栈） | 任意音乐 App 通用 |
 | 渲染 | 本地 WebView `lyrics_overlay.html` | 逐字动画用 Web 更快 |
 | 场景 | Global `SETTINGS_KEY_LAUNCHER_STATE` | 见上文 |
@@ -201,3 +212,5 @@ git tag v2.7.7 && git push origin v2.7.7
 ## 许可
 
 [MIT License](LICENSE)
+
+> AI生成

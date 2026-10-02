@@ -90,7 +90,7 @@ public final class LyricsSettingsRenderer {
         String color = OverlayService.getColor();
         int colorIdx = "white".equals(color) ? 0 : "black".equals(color) ? 1 : 2;
         box.addView(UiKit.groupTitle(c, "歌词颜色"));
-        box.addView(UiKit.groupDesc(c, "默认跟随系统主题强调色；也可固定白/黑。"));
+        box.addView(UiKit.groupDesc(c, "默认黑色：浅色壁纸上更清晰；也可固定白色或跟随系统主题强调色。"));
         final int[] colorIdxHolder = {colorIdx};
         String[] colorLabels = {"白", "黑", "跟随系统"};
         box.addView(UiKit.segmented(c, colorLabels, colorIdxHolder[0], new UiKit.Action[]{
