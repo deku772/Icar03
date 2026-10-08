@@ -165,14 +165,16 @@ final class AdbClient implements Closeable {
         if (apk == null || !apk.isFile() || apk.length() < 1000) {
             throw new IOException("APK 文件无效");
         }
-        String remote = "/data/local/tmp/" + remoteName;
-        try {
-            pushFile(apk, remote);
-            Log.i(TAG, "pushed via sync: " + remote);
-        } catch (IOException e) {
-            Log.w(TAG, "sync push failed (" + e.getMessage() + "), fallback shell-cat");
-            pushFileViaShell(apk, remote);
+        byte[] data;
+        try (java.io.InputStream in = new java.io.FileInputStream(apk);
+             java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream()) {
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+            data = bos.toByteArray();
         }
+        String remote = "/data/local/tmp/" + remoteName;
+        pushBytes(data, remote);
         String out = shell("pm install -r " + remote);
         if (out == null) out = "";
         String t = out.trim();
@@ -182,28 +184,39 @@ final class AdbClient implements Closeable {
         shell("rm -f " + remote);
     }
 
+    /** 推任意字节到车机路径：sync: 优先，被拒则 exec:cat 兜底（v2.8.2，授权脚本用） */
+    void pushBytes(byte[] data, String remotePath) throws IOException {
+        if (data == null || data.length == 0) throw new IOException("推送数据为空");
+        try {
+            pushViaSync(data, remotePath);
+            Log.i(TAG, "pushed via sync: " + remotePath);
+        } catch (IOException e) {
+            Log.w(TAG, "sync push failed (" + e.getMessage() + "), fallback shell-cat");
+            pushBytesViaShell(data, remotePath);
+        }
+    }
+
     private static String firstLine(String s) {
         int i = s.indexOf('\n');
         return i > 0 ? s.substring(0, i) : s;
     }
 
     /** exec:cat > file 流式写入（sync: 被 adbd 拒时的兜底） */
-    private void pushFileViaShell(java.io.File local, String remotePath) throws IOException {
+    private void pushBytesViaShell(byte[] data, String remotePath) throws IOException {
         int localId = localIdSeq++;
         String svc = "exec:cat > " + remotePath;
         send(A_OPEN, localId, 0, (svc + "\0").getBytes(StandardCharsets.UTF_8));
         int remoteId = waitOkay(localId);
 
-        try (java.io.InputStream in = new java.io.FileInputStream(local)) {
-            byte[] chunk = new byte[32 * 1024];
-            int n;
-            while ((n = in.read(chunk)) > 0) {
-                byte[] data = new byte[n];
-                System.arraycopy(chunk, 0, data, 0, n);
-                /* WRTE: arg0=本端 localId, arg1=对端 remoteId */
-                send(A_WRTE, localId, remoteId, data);
-                waitOkay(localId);
-            }
+        int off = 0;
+        while (off < data.length) {
+            int n = Math.min(32 * 1024, data.length - off);
+            byte[] chunk = new byte[n];
+            System.arraycopy(data, off, chunk, 0, n);
+            /* WRTE: arg0=本端 localId, arg1=对端 remoteId */
+            send(A_WRTE, localId, remoteId, chunk);
+            waitOkay(localId);
+            off += n;
         }
         send(A_CLSE, localId, remoteId, new byte[0]);
         /* 读完设备侧 CLSE */
@@ -214,8 +227,8 @@ final class AdbClient implements Closeable {
         }
     }
 
-    /** ADB sync SEND/DATA/DONE 推单个文件 */
-    private void pushFile(java.io.File local, String remotePath) throws IOException {
+    /** ADB sync SEND/DATA/DONE 推字节到单一路径 */
+    private void pushViaSync(byte[] data, String remotePath) throws IOException {
         int localId = localIdSeq++;
         send(A_OPEN, localId, 0, "sync:\0".getBytes(StandardCharsets.UTF_8));
         int remoteId = waitOkay(localId);
@@ -229,16 +242,15 @@ final class AdbClient implements Closeable {
         writeRaw(sendReq);
         readSyncOk("SEND");
 
-        try (java.io.InputStream in = new java.io.FileInputStream(local)) {
-            byte[] chunk = new byte[64 * 1024];
-            int n;
-            while ((n = in.read(chunk)) > 0) {
-                byte[] dataReq = new byte[8 + n];
-                System.arraycopy("DATA".getBytes(StandardCharsets.US_ASCII), 0, dataReq, 0, 4);
-                putLe32(dataReq, 4, n);
-                System.arraycopy(chunk, 0, dataReq, 8, n);
-                writeRaw(dataReq);
-            }
+        int off = 0;
+        while (off < data.length) {
+            int n = Math.min(64 * 1024, data.length - off);
+            byte[] dataReq = new byte[8 + n];
+            System.arraycopy("DATA".getBytes(StandardCharsets.US_ASCII), 0, dataReq, 0, 4);
+            putLe32(dataReq, 4, n);
+            System.arraycopy(data, off, dataReq, 8, n);
+            writeRaw(dataReq);
+            off += n;
         }
         byte[] done = new byte[8];
         System.arraycopy("DONE".getBytes(StandardCharsets.US_ASCII), 0, done, 0, 4);

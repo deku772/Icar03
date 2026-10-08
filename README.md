@@ -3,15 +3,15 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '9ea50b97-eb0b-4a1e-a60a-dc583ef25e5d'
-  PropagateID: '9ea50b97-eb0b-4a1e-a60a-dc583ef25e5d'
-  ReservedCode1: '34b418bd-d8fd-463c-832b-00176cc76cb9'
-  ReservedCode2: '34b418bd-d8fd-463c-832b-00176cc76cb9'
+  ProduceID: '5dfd87c2-6910-4efe-89ac-ef6c088b3ed5'
+  PropagateID: '5dfd87c2-6910-4efe-89ac-ef6c088b3ed5'
+  ReservedCode1: 'c3737da4-dd8b-46a7-af69-60b76f7ae0c6'
+  ReservedCode2: 'c3737da4-dd8b-46a7-af69-60b76f7ae0c6'
 ---
 
 # IcarLyrics
 
-[![Release](https://img.shields.io/badge/release-v2.8.1-blue)](../../releases)
+[![Release](https://img.shields.io/badge/release-v2.8.2-blue)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬浮窗渲染**。  
@@ -56,6 +56,7 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 - 车机内嵌手机 APK，本地 HTTP `:18765` + 二维码分发
 - 两端开机 / 覆盖安装自启；手动停止后不再自启
 - 服务状态显示本机 IP（ADB 端口 5555），便于调试
+- **ADB 一键安装/授权 = 组合脚本**（v2.8.2，03 车机助手同款思路）：全部授权+验证+启动合并为单个 shell 脚本一次执行；幂等（已授权项跳过）、逐项回读验证、无障碍/通知监听列表只追加不覆盖，绝不破坏车机已有配置
 
 ## 地图 / 壁纸识别（关键）
 

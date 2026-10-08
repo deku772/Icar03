@@ -315,15 +315,213 @@ final class CarAdbSetup {
         }
     }
 
+    /* ---------------- 组合授权（03 车机助手同款思路，v2.8.2） ---------------- */
+
+    /**
+     * 全部授权 + 验证 + 启动合并为一个 shell 脚本，推到车机一次执行：
+     * - 单会话：旧版 8 条命令 8 次往返 → 现在 1 次
+     * - 幂等：每项先读现状，已生效直接跳过（changed=0）
+     * - 追加：无障碍/通知监听列表先读后追加并回读，绝不覆盖车机已有配置
+     * - 回读：每项设置后回读验证，marker 行结构化回传逐项结果
+     */
     private static void grantVia(AdbClient adb, Callback cb) throws IOException {
-        runCmd(adb, cb, "appops set com.icarme.lyrics SYSTEM_ALERT_WINDOW allow");
-        runCmd(adb, cb, "pm grant com.icarme.lyrics android.permission.ACCESS_FINE_LOCATION");
-        runCmd(adb, cb, "cmd notification allow_listener com.icarme.lyrics/.CarMediaListener");
-        runCmd(adb, cb, "appops set com.icarme.lyrics android:get_usage_stats allow");
-        runCmd(adb, cb, "settings put secure enabled_accessibility_services com.icarme.lyrics/.IcarA11yService");
-        runCmd(adb, cb, "settings put secure accessibility_enabled 1");
-        runCmd(adb, cb, "am broadcast -a com.icarme.lyrics.START -n com.icarme.lyrics/.AdbReceiver");
-        runCmd(adb, cb, "am start -n com.icarme.lyrics/.MainActivity");
+        byte[] script = grantScript().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        adb.pushBytes(script, REMOTE_SCRIPT);
+        cb.onLog("执行组合授权（单次会话）…");
+        String out = adb.shell("sh " + REMOTE_SCRIPT);
+        parseGrantOutput(out, cb);
+        adb.shell("rm -f " + REMOTE_SCRIPT);
+    }
+
+    private static final String REMOTE_SCRIPT = "/data/local/tmp/icar_grant.sh";
+    private static final String MARKER = "ICARLY|";
+    private static final String CAR_PKG = "com.icarme.lyrics";
+
+    /** 生成授权脚本（mksh 兼容；函数命名对齐 03 助手反编译产物便于日后对照） */
+    private static String grantScript() {
+        return "set -u\n"
+                + "marker='ICARLY'\n"
+                + "emit() { printf '%s|%s\\n' \"$marker\" \"$*\"; }\n"
+                + "fail() { emit \"FAIL|$1|${2:-}\"; exit 1; }\n"
+                + "first_reason=''; first_component=''\n"
+                + "remember_failure() { [ -n \"$first_reason\" ] || { first_reason=\"$1\"; first_component=\"$2\"; } }\n"
+                + "finish_failures() { [ -z \"$first_reason\" ] || fail \"$first_reason\" \"$first_component\"; }\n"
+                + "package_present() { pm path \"$1\" >/dev/null 2>&1; }\n"
+                + "appop_state() {\n"
+                + "  value=\"$(appops get \"$1\" \"$2\" 2>/dev/null)\" || return 1\n"
+                + "  case \"$value\" in\n"
+                + "    *\"$2: allow\"*) echo ALLOWED;;\n"
+                + "    *\"$2: deny\"*) echo DENIED;;\n"
+                + "    *\"$2: ignore\"*) echo IGNORED;;\n"
+                + "    *\"$2: errored\"*) echo ERRORED;;\n"
+                + "    *\"Uid mode: allow\"*) echo ALLOWED;;\n"
+                + "    *\"Default mode: allow\"*) echo ALLOWED;;\n"
+                + "    *\"Default mode: default\"*) echo DEFAULT;;\n"
+                + "    *\"Default mode: ignore\"*) echo IGNORED;;\n"
+                + "    *\"No operations.\"*) echo DEFAULT;;\n"
+                + "    *) return 1;;\n"
+                + "  esac\n"
+                + "}\n"
+                + "runtime_state() { dumpsys package \"$1\" 2>/dev/null | grep -Fq \"$2: granted=true\" && echo GRANTED || echo DENIED; }\n"
+                + "list_contains() { case \":$1:\" in *\":$2:\"*) return 0;; *) return 1;; esac; }\n"
+                + "dedupe_list() {\n"
+                + "  raw=\"$1\"; result=''; old_ifs=\"$IFS\"; IFS=':'\n"
+                + "  for item in $raw; do\n"
+                + "    [ -n \"$item\" ] || continue\n"
+                + "    case \":$result:\" in *\":$item:\"*) continue;; esac\n"
+                + "    if [ -n \"$result\" ]; then result=\"$result:$item\"; else result=\"$item\"; fi\n"
+                + "  done\n"
+                + "  IFS=\"$old_ifs\"; printf '%s' \"$result\"\n"
+                + "}\n"
+                + "emit_auth() { emit \"AUTH|$1|$2|$3|$4\"; }\n"
+                + "ensure_appop() {\n"
+                + "  pkg=\"$1\"; op=\"$2\"; item=\"$3\"\n"
+                + "  before=\"$(appop_state \"$pkg\" \"$op\")\" || { remember_failure appop_read_failed \"$item\"; return 0; }\n"
+                + "  after=\"$before\"; changed=0\n"
+                + "  if [ \"$before\" != ALLOWED ]; then\n"
+                + "    appops set \"$pkg\" \"$op\" allow >/dev/null 2>&1 || { remember_failure appop_write_failed \"$item\"; return 0; }\n"
+                + "    changed=1\n"
+                + "    after=\"$(appop_state \"$pkg\" \"$op\")\" || { remember_failure appop_readback_failed \"$item\"; return 0; }\n"
+                + "  fi\n"
+                + "  [ \"$after\" = ALLOWED ] || { remember_failure appop_not_allowed \"$item\"; return 0; }\n"
+                + "  emit_auth \"$item\" \"$before\" \"$changed\" \"$after\"\n"
+                + "}\n"
+                + "ensure_runtime_permission() {\n"
+                + "  pkg=\"$1\"; perm=\"$2\"; item=\"$3\"\n"
+                + "  before=\"$(runtime_state \"$pkg\" \"$perm\")\"\n"
+                + "  after=\"$before\"; changed=0\n"
+                + "  if [ \"$before\" != GRANTED ]; then\n"
+                + "    pm grant \"$pkg\" \"$perm\" >/dev/null 2>&1 || { remember_failure perm_write_failed \"$item\"; return 0; }\n"
+                + "    changed=1\n"
+                + "    after=\"$(runtime_state \"$pkg\" \"$perm\")\"\n"
+                + "  fi\n"
+                + "  [ \"$after\" = GRANTED ] || { remember_failure perm_not_granted \"$item\"; return 0; }\n"
+                + "  emit_auth \"$item\" \"$before\" \"$changed\" \"$after\"\n"
+                + "}\n"
+                + "append_secure_component() {\n"
+                + "  setting=\"$1\"; target=\"$2\"; item=\"$3\"\n"
+                + "  before_raw=\"$(settings get secure \"$setting\" 2>/dev/null)\" || { remember_failure list_read_failed \"$item\"; return 0; }\n"
+                + "  before_norm=\"$(dedupe_list \"$before_raw\")\"\n"
+                + "  before_state=ABSENT; list_contains \"$before_norm\" \"$target\" && before_state=PRESENT\n"
+                + "  after_raw=\"$before_norm\"; changed=0\n"
+                + "  if [ \"$before_state\" = ABSENT ]; then\n"
+                + "    if [ \"$setting\" = enabled_notification_listeners ]; then\n"
+                + "      cmd notification allow_listener \"$target\" >/dev/null 2>&1 || {\n"
+                + "        if [ -z \"$before_norm\" ] || [ \"$before_norm\" = null ]; then next=\"$target\"; else next=\"$before_norm:$target\"; fi\n"
+                + "        settings put secure \"$setting\" \"$next\" >/dev/null 2>&1 || { remember_failure list_write_failed \"$item\"; return 0; }\n"
+                + "      }\n"
+                + "    else\n"
+                + "      if [ -z \"$before_norm\" ] || [ \"$before_norm\" = null ]; then next=\"$target\"; else next=\"$before_norm:$target\"; fi\n"
+                + "      settings put secure \"$setting\" \"$next\" >/dev/null 2>&1 || { remember_failure list_write_failed \"$item\"; return 0; }\n"
+                + "    fi\n"
+                + "    changed=1\n"
+                + "    after_raw=\"$(settings get secure \"$setting\" 2>/dev/null)\" || { remember_failure list_readback_failed \"$item\"; return 0; }\n"
+                + "  fi\n"
+                + "  list_contains \"$after_raw\" \"$target\" || { remember_failure list_not_present \"$item\"; return 0; }\n"
+                + "  old_ifs=\"$IFS\"; IFS=':'\n"
+                + "  for keep in $before_norm; do\n"
+                + "    [ -n \"$keep\" ] || continue\n"
+                + "    list_contains \"$after_raw\" \"$keep\" || { IFS=\"$old_ifs\"; remember_failure list_clobbered \"$item\"; return 0; }\n"
+                + "  done\n"
+                + "  IFS=\"$old_ifs\"\n"
+                + "  emit_auth \"$item\" \"$before_state\" \"$changed\" \"PRESENT\"\n"
+                + "}\n"
+                + "pkg=" + CAR_PKG + "\n"
+                + "package_present \"$pkg\" || fail package_missing ''\n"
+                + "ensure_appop \"$pkg\" SYSTEM_ALERT_WINDOW overlay\n"
+                + "ensure_appop \"$pkg\" android:get_usage_stats usage_stats\n"
+                + "ensure_runtime_permission \"$pkg\" android.permission.ACCESS_FINE_LOCATION location\n"
+                + "append_secure_component enabled_notification_listeners \"$pkg/.CarMediaListener\" notification_listener\n"
+                + "enabled=\"$(settings get secure accessibility_enabled 2>/dev/null)\"\n"
+                + "[ \"$enabled\" = 1 ] || settings put secure accessibility_enabled 1 >/dev/null 2>&1 || remember_failure a11y_master_failed accessibility\n"
+                + "append_secure_component enabled_accessibility_services \"$pkg/.IcarA11yService\" accessibility\n"
+                + "finish_failures\n"
+                + "am broadcast -a com.icarme.lyrics.START -n \"$pkg/.AdbReceiver\" >/dev/null 2>&1\n"
+                + "am start -n \"$pkg/.MainActivity\" >/dev/null 2>&1 || fail launch_failed ''\n"
+                + "emit \"LAUNCH|OK\"\n"
+                + "emit \"DONE|OK\"\n";
+    }
+
+    /** 解析脚本 marker 输出；失败抛 IOException 由外层汇总 */
+    private static void parseGrantOutput(String out, Callback cb) throws IOException {
+        if (out == null || out.trim().isEmpty()) {
+            throw new IOException("授权脚本无输出（shell 通道可能被占用）");
+        }
+        boolean done = false;
+        String failReason = null;
+        for (String raw : out.split("\n")) {
+            String line = raw.trim();
+            if (!line.startsWith(MARKER)) continue;
+            String[] p = line.substring(MARKER.length()).split("\\|");
+            if (p.length < 1 || p[0].isEmpty()) continue;
+            switch (p[0]) {
+                case "AUTH": {
+                    /* AUTH|item|before|changed|after */
+                    if (p.length < 5) continue;
+                    boolean changed = "1".equals(p[3]);
+                    cb.onLog("  " + itemCn(p[1]) + ": " + stateCn(p[4])
+                            + (changed ? "" : "（原已生效，跳过）"));
+                    break;
+                }
+                case "FAIL": {
+                    String reason = p.length > 1 ? p[1] : "unknown";
+                    String item = p.length > 2 ? p[2] : "";
+                    failReason = reasonCn(reason)
+                            + (item.isEmpty() ? "" : "（" + itemCn(item) + "）");
+                    cb.onLog("  失败: " + failReason);
+                    break;
+                }
+                case "LAUNCH":
+                    cb.onLog("  车机端已启动");
+                    break;
+                case "DONE":
+                    done = true;
+                    break;
+            }
+        }
+        if (failReason != null) throw new IOException("授权失败: " + failReason);
+        if (!done) throw new IOException("授权脚本未完成（未见 DONE 标记）");
+    }
+
+    private static String itemCn(String item) {
+        if (item == null) return "?";
+        switch (item) {
+            case "overlay": return "悬浮窗权限";
+            case "usage_stats": return "场景检测（使用情况）";
+            case "location": return "定位权限";
+            case "notification_listener": return "媒体监听";
+            case "accessibility": return "无障碍服务";
+            default: return item;
+        }
+    }
+
+    private static String stateCn(String state) {
+        if (state == null) return "?";
+        switch (state) {
+            case "ALLOWED": case "GRANTED": case "PRESENT": return "已生效";
+            case "DEFAULT": return "默认";
+            case "DENIED": return "拒绝";
+            case "IGNORED": return "忽略";
+            case "ABSENT": return "未配置";
+            default: return state;
+        }
+    }
+
+    private static String reasonCn(String reason) {
+        if (reason == null) return "未知错误";
+        switch (reason) {
+            case "package_missing": return "车机端未安装（请先执行安装）";
+            case "appop_read_failed": case "list_read_failed": return "读取权限状态失败";
+            case "appop_write_failed": case "perm_write_failed": case "list_write_failed":
+                return "设置权限失败";
+            case "appop_readback_failed": case "list_readback_failed": return "回读验证失败";
+            case "appop_not_allowed": case "perm_not_granted": return "设置后仍未生效";
+            case "list_not_present": return "追加后未生效";
+            case "list_clobbered": return "检测到会覆盖车机已有配置，已中止（安全保护）";
+            case "a11y_master_failed": return "无障碍总开关开启失败";
+            case "launch_failed": return "启动车机端失败";
+            default: return reason;
+        }
     }
 
     private static String runCmd(AdbClient adb, Callback cb, String cmd) {
