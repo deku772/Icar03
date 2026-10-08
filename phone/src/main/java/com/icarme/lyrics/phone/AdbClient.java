@@ -51,6 +51,8 @@ final class AdbClient implements Closeable {
     private static final int MAX_DATA = 256 * 1024;
     private static final int CONNECT_TIMEOUT_MS = 5000;
     private static final int IO_TIMEOUT_MS = 15000;
+    /** 组合授权脚本整体超时：内含 dumpsys/appops/settings 多条子命令，放宽到 60s（v2.8.3） */
+    private static final int SCRIPT_IO_TIMEOUT_MS = 60000;
 
     private Socket socket;
     private DataInputStream in;
@@ -112,6 +114,22 @@ final class AdbClient implements Closeable {
             } catch (IOException e2) {
                 throw new IOException(e1.getMessage() + " | shell: " + e2.getMessage());
             }
+        }
+    }
+
+    /**
+     * 执行整段 shell 脚本（03 助手同款：脚本不落盘，直接 sh -c 单流跑完，v2.8.3）。
+     * - 必须走 shell: 而非 exec:（exec: 按 execve 解析，不吃 shell 语法）
+     * - 多行/引号自洽的脚本作为 payload 原样传输，adbd 交给 /system/bin/sh -c
+     * - 脚本内含 dumpsys/appops 等多条命令，读超时放宽
+     */
+    String shellScript(String script) throws IOException {
+        if (script == null || script.isEmpty()) throw new IOException("脚本为空");
+        socket.setSoTimeout(SCRIPT_IO_TIMEOUT_MS);
+        try {
+            return openService("shell:" + script);
+        } finally {
+            try { socket.setSoTimeout(IO_TIMEOUT_MS); } catch (Exception ignored) {}
         }
     }
 

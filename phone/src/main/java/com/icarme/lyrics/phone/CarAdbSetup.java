@@ -132,9 +132,12 @@ final class CarAdbSetup {
                                 throw new IOException("shell 通道异常");
                             }
                             adb.pushAndInstall(apk, "IcarLyrics-Car.apk");
-                            cb.onLog("pm install 完成，开始授权…");
-                            grantVia(adb, cb);
                         }
+                        /* 安装与授权分开两条连接（v2.8.3）：
+                         * pm install 后同一连接再开流，部分车机 adbd 会直接断（Broken pipe）。
+                         * 03 助手也是安装/授权独立事务，这里对齐。 */
+                        cb.onLog("pm install 完成，开始授权…");
+                        grantWithRetry(host, cb);
                         cb.onDone(true, "车机 " + host + " 安装并授权完成");
                         return;
                     } catch (Exception e) {
@@ -181,7 +184,7 @@ final class CarAdbSetup {
         StringBuilder rank = new StringBuilder("镜像测速:");
         for (int idx : order) {
             rank.append(' ').append(shortLabel(candidates[idx]))
-                    .append(probe[idx] >= Long.MAX_VALUE / 2 ? "=超时" : "=" + probe[idx] + "ms");
+                    .append(probe[idx] >= Long.MAX_VALUE / 4 ? "=异常" : "=" + probe[idx] + "ms");
         }
         cb.onLog(rank.toString());
 
@@ -305,39 +308,68 @@ final class CarAdbSetup {
     }
 
     static void grantOnHost(String host, Callback cb) throws IOException {
-        try (AdbClient adb = new AdbClient()) {
-            adb.connect(host, ADB_PORT);
-            String banner = runCmd(adb, cb, "echo ok");
-            if (banner == null || !banner.contains("ok")) {
-                throw new IOException("shell 通道异常（若 ADB Helper/电脑 adb 已连接，请先断开再试）");
-            }
-            grantVia(adb, cb);
-        }
+        grantWithRetry(host, cb);
     }
 
     /* ---------------- 组合授权（03 车机助手同款思路，v2.8.2） ---------------- */
 
     /**
-     * 全部授权 + 验证 + 启动合并为一个 shell 脚本，推到车机一次执行：
+     * 授权入口（v2.8.3）：独立连接 + 断线重试一次。
+     * Broken pipe/connection reset 时车机 adbd 主动断开，重连后重试通常即恢复。
+     */
+    private static void grantWithRetry(String host, Callback cb) throws IOException {
+        IOException last = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try (AdbClient adb = new AdbClient()) {
+                if (attempt > 1) {
+                    cb.onLog("重新连接 " + host + " 重试授权…");
+                }
+                adb.connect(host, ADB_PORT);
+                String banner = runCmd(adb, cb, "echo ok");
+                if (banner == null || !banner.contains("ok")) {
+                    throw new IOException("shell 通道异常（若 ADB Helper/电脑 adb 已连接，请先断开再试）");
+                }
+                grantVia(adb, cb);
+                return;
+            } catch (IOException e) {
+                last = e;
+                if (attempt == 1 && isConnectionDropped(e)) {
+                    cb.onLog("连接被车机断开（" + e.getMessage() + "），重连重试…");
+                    continue;
+                }
+                throw e;
+            }
+        }
+        throw last;
+    }
+
+    /** 对端断连特征：Broken pipe / connection reset / EPIPE */
+    private static boolean isConnectionDropped(IOException e) {
+        String m = e.getMessage();
+        if (m == null) return false;
+        String s = m.toLowerCase(Locale.US);
+        return s.contains("broken pipe") || s.contains("connection reset")
+                || s.contains("epipe") || s.contains("connection abort");
+    }
+
+    /**
+     * 全部授权 + 验证 + 启动合并为一个 shell 脚本，单流执行（v2.8.3：不再落盘）：
      * - 单会话：旧版 8 条命令 8 次往返 → 现在 1 次
      * - 幂等：每项先读现状，已生效直接跳过（changed=0）
      * - 追加：无障碍/通知监听列表先读后追加并回读，绝不覆盖车机已有配置
      * - 回读：每项设置后回读验证，marker 行结构化回传逐项结果
      */
     private static void grantVia(AdbClient adb, Callback cb) throws IOException {
-        byte[] script = grantScript().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        adb.pushBytes(script, REMOTE_SCRIPT);
-        cb.onLog("执行组合授权（单次会话）…");
-        String out = adb.shell("sh " + REMOTE_SCRIPT);
+        String script = grantScript();
+        cb.onLog("执行组合授权（单流直执行）…");
+        String out = adb.shellScript(script);
         parseGrantOutput(out, cb);
-        adb.shell("rm -f " + REMOTE_SCRIPT);
     }
 
-    private static final String REMOTE_SCRIPT = "/data/local/tmp/icar_grant.sh";
+    /** 生成授权脚本（mksh 兼容；函数命名对齐 03 助手反编译产物便于日后对照） */
     private static final String MARKER = "ICARLY|";
     private static final String CAR_PKG = "com.icarme.lyrics";
 
-    /** 生成授权脚本（mksh 兼容；函数命名对齐 03 助手反编译产物便于日后对照） */
     private static String grantScript() {
         return "set -u\n"
                 + "marker='ICARLY'\n"
