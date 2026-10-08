@@ -15,12 +15,12 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 歌词抓取：三源降级 + 内存缓存。
  *
- *  1) music.163.com — 网易云公开接口，搜索多首再取 lrc + tlyric（默认源）
- *  2) c.y.qq.com   — QQ 音乐公开接口（musicu.fcg 搜索 + fcg_query_lyric_new 歌词）
+ *  1) c.y.qq.com   — QQ 音乐公开接口（musicu.fcg 搜索 + fcg_query_lyric_new 歌词），默认源
+ *  2) music.163.com — 网易云公开接口，搜索多首再取 lrc + tlyric
  *  3) lrclib.net   — LRC 兜底，可能带逐字增强时间轴（<mm:ss.xx>）
  *
- * v2.8：取词顺序改为 网易 → QQ → lrclib；QQ 搜索改用 musicu.fcg POST JSON
- * （旧接口 client_search_cp 已返回 500 失效），歌曲字段名 songmid → mid。
+ * v2.8.1：取词顺序改为 QQ → 网易 → lrclib；v2.8 QQ 搜索改用 musicu.fcg
+ * POST JSON（旧接口 client_search_cp 已返回 500 失效），字段名 songmid → mid。
  * v2.5：每源最多试 3 首搜索结果（避免第一首无词/匹配错就整源失败）；
  * 失败原因写入 lastError，主界面取词行可见。
  * 结果缓存按 "track|artist" 键存内存，命中直接返回，避免频控。
@@ -66,9 +66,9 @@ final class LyricsFetcher {
         String trk = cleanText(track);
         StringBuilder fail = new StringBuilder();
 
-        /* 取词顺序：网易云（默认）→ QQ 音乐 → LRC(lrclib) 兜底 */
-        Result r = tryNetease(trk, art, fail);
-        if (r == null) r = tryQq(trk, art, fail);
+        /* 取词顺序：QQ 音乐（默认）→ 网易云 → LRC(lrclib) 兜底 */
+        Result r = tryQq(trk, art, fail);
+        if (r == null) r = tryNetease(trk, art, fail);
         if (r == null) r = tryLrclib(trk, art, durationSec, fail);
 
         if (r != null && r.lrc != null && !r.lrc.isEmpty()) {
@@ -90,7 +90,7 @@ final class LyricsFetcher {
                 .trim();
     }
 
-    /* ---------------- 1) 网易云 ---------------- */
+    /* ---------------- 2) 网易云 ---------------- */
 
     private Result tryNetease(String track, String artist, StringBuilder fail) {
         try {
@@ -148,7 +148,7 @@ final class LyricsFetcher {
         }
     }
 
-    /* ---------------- 2) QQ 音乐 ---------------- */
+    /* ---------------- 1) QQ 音乐 ---------------- */
 
     private Result tryQq(String track, String artist, StringBuilder fail) {
         try {

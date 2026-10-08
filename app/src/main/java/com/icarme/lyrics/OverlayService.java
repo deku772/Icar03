@@ -560,8 +560,16 @@ public class OverlayService extends Service {
                 } else if ("cmd".equals(type)) {
                     js = "IcarJS.onCmd(" + JSONObject.quote(json) + ")";
                 } else if ("conn".equals(type)) {
-                    /* BLE 连接状态变化（BleService 转发） */
-                    js = "IcarJS.onCmd(" + JSONObject.quote(json) + ")";
+                    /* BLE 连接状态变化（BleService 转发）。
+                     * 蓝牙模式下断开 = 歌词源已死（手机不会再推新词）：
+                     * 注入 lyricsSourceGone，渲染层立即淡出旧词，
+                     * 避免本地蓝牙栈进度（A2DP 仍在放）把旧词一直挂在屏幕上。
+                     * 在线模式歌词来自车机自身，不受 BLE 断开影响。 */
+                    if (!obj.optBoolean("connected", true)
+                            && SRC_BLUETOOTH.equals(getLyricsSourceMode())) {
+                        obj.put("lyricsSourceGone", true);
+                    }
+                    js = "IcarJS.onCmd(" + JSONObject.quote(obj.toString()) + ")";
                 } else {
                     return;
                 }

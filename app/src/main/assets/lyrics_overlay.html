@@ -150,6 +150,7 @@ var S = {
   connected:false, advState:'', rxFrag:0, rxFrame:0, rxProg:0, rxBrief:'',
   demo:false, loop:true,
   lastActiveAt:0, idleHideMs:10000, idleHidden:false,
+  sourceGone:false,       /* 歌词源已断（蓝牙模式 BLE 断连）：保持隐藏直到新词/重连 */
   lastTickAt:0,
   debug:false
 };
@@ -259,8 +260,18 @@ function handleProgress(msg){
   S.syncedAt = Date.now();
   if (msg.durationMs) S.durationMs = msg.durationMs;
   document.body.classList.toggle('paused', !S.playing);
-  if (S.playing) markActive();
+  /* 歌词源已断时，本地蓝牙栈进度包不再唤回旧词（否则旧词长挂屏幕） */
+  if (S.playing) { if (!S.sourceGone) markActive(); }
   else evaluateIdleHide();
+}
+
+/** 歌词源断开（蓝牙模式下手机 BLE 断连）：立即淡出，不留旧词。
+ *  恢复仅两条路：手机重连（conn connected:true）或新歌词包到达（handleLyrics）。 */
+function forceHideLyrics(){
+  S.sourceGone = true;
+  S.lastActiveAt = 0;
+  S.idleHidden = true;
+  document.body.classList.add('idle-hide');
 }
 
 function handleCmd(msg){
@@ -268,6 +279,7 @@ function handleCmd(msg){
     if (typeof msg.advState === 'string') S.advState = msg.advState;
     if (typeof msg.connected === 'boolean') S.connected = msg.connected;
     if (S.connected) markActive();
+    else if (msg.lyricsSourceGone) forceHideLyrics();
     else evaluateIdleHide();
     updateVisibility();
     return;
@@ -561,6 +573,7 @@ function heartbeat(){
 
 /** 暂停或未连蓝牙 10s 后隐藏悬浮歌词；恢复播放/连接立即显示 */
 function markActive(){
+  S.sourceGone = false;
   S.lastActiveAt = Date.now();
   if (S.idleHidden){
     S.idleHidden = false;
@@ -570,6 +583,8 @@ function markActive(){
 
 function evaluateIdleHide(){
   if (S.demo || !S.lines.length) return;
+  /* 歌词源已断：保持隐藏（仅新词/重连恢复，见 forceHideLyrics） */
+  if (S.sourceGone) return;
   /* 暂停时保留歌词（只压暗），仅长时间无连接/无播放才淡出 */
   var live = S.playing || (S.connected && S.lines.length > 0);
   if (live){

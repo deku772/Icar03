@@ -3,15 +3,15 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '4c16aed9-6a85-4f10-ab58-351b7c5be14e'
-  PropagateID: '4c16aed9-6a85-4f10-ab58-351b7c5be14e'
-  ReservedCode1: 'a1c154b5-72ea-4d88-8cb8-8f4784f27b89'
-  ReservedCode2: 'a1c154b5-72ea-4d88-8cb8-8f4784f27b89'
+  ProduceID: '9ea50b97-eb0b-4a1e-a60a-dc583ef25e5d'
+  PropagateID: '9ea50b97-eb0b-4a1e-a60a-dc583ef25e5d'
+  ReservedCode1: '34b418bd-d8fd-463c-832b-00176cc76cb9'
+  ReservedCode2: '34b418bd-d8fd-463c-832b-00176cc76cb9'
 ---
 
 # IcarLyrics
 
-[![Release](https://img.shields.io/badge/release-v2.8.0-blue)](../../releases)
+[![Release](https://img.shields.io/badge/release-v2.8.1-blue)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬浮窗渲染**。  
@@ -19,7 +19,7 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 
 ```
 手机播放音乐（任意 App）
-  └─ 手机端：MediaSession 监控 → 三源取词（网易云 / QQ音乐 / lrclib）
+  └─ 手机端：MediaSession 监控 → 三源取词（QQ音乐 / 网易云 / lrclib）
        └─ BLE GATT Server（Peripheral）Notify 推送歌词 / 进度
             └─ 车机端：GATT Client 按服务 UUID 扫描发现手机并自动连接
                  └─ 悬浮窗滚动歌词（中间三行焦点色放大 · 翻译 · 地图/壁纸双模式）
@@ -40,6 +40,7 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 - 渲染层 `tick` + `setInterval` 双心跳，单帧异常不杀死 rAF
 - **手动切歌**：扫描全部媒体会话取「不同于当前曲目」的最新元数据（非蓝牙包名优先），并忽略 3s 内蓝牙栈旧歌回灌（v2.7.7）
 - 僵尸会话检测；自然切歌立即清词；取词序号防串歌
+- **手机 BLE 断开即淡出歌词**（v2.8.1）：蓝牙模式下断连后旧词立即隐藏，重连/新词自动恢复
 - 歌词偏移 ±15s（250ms 步进）
 
 **渲染**
@@ -86,7 +87,7 @@ iCAR 03 车机多行滚动歌词：**手机取词 → BLE 推送 → 车机悬�
 | MTU | 固定 247 | 手机栈 `requestMtu(517)` 会被车机 512 上限打回，连带循环断连 |
 | 分片 | LE `frameId u16 + seq + total` | 对齐 `Reassembler`；乱序/重复/丢包可容 |
 | 写队列 | 单飞行真 ACK，歌词永不丢、进度可合并 | 防伪释放 |
-| 取词 | 网易云 → QQ 音乐 → lrclib（手机端；车机在线模式同源） | 网易优先；QQ 用 musicu.fcg 新搜索接口；lrclib 兜底 |
+| 取词 | QQ 音乐 → 网易云 → lrclib（手机端；车机在线模式同源） | QQ 优先（musicu.fcg 新搜索接口）；lrclib 兜底 |
 | 进度 | 车机 `MediaSession`（蓝牙栈） | 任意音乐 App 通用 |
 | 渲染 | 本地 WebView `lyrics_overlay.html` | 逐字动画用 Web 更快 |
 | 场景 | Global `SETTINGS_KEY_LAUNCHER_STATE` | 见上文 |

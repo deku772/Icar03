@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 歌词抓取（车机联网模式）：三源降级 + 内存缓存。
- *  1) music.163.com（默认）  2) c.y.qq.com（musicu.fcg 新搜索）  3) lrclib.net
+ *  1) c.y.qq.com（musicu.fcg 新搜索，默认）  2) music.163.com  3) lrclib.net
  * 与手机端同源策略，供 OverlayService 在「在线歌词」模式下使用。
  */
 public final class CarLyricsFetcher {
@@ -54,9 +54,9 @@ public final class CarLyricsFetcher {
         String art = cleanText(artist);
         String trk = cleanText(track);
         StringBuilder fail = new StringBuilder();
-        /* 取词顺序：网易云（默认）→ QQ 音乐 → LRC(lrclib) 兜底 */
-        Result r = tryNetease(trk, art, fail);
-        if (r == null) r = tryQq(trk, art, fail);
+        /* 取词顺序：QQ 音乐（默认）→ 网易云 → LRC(lrclib) 兜底 */
+        Result r = tryQq(trk, art, fail);
+        if (r == null) r = tryNetease(trk, art, fail);
         if (r == null) r = tryLrclib(trk, art, durationSec, fail);
         if (r != null && r.lrc != null && !r.lrc.isEmpty()) {
             cache.put(key, r);
@@ -72,7 +72,7 @@ public final class CarLyricsFetcher {
         return s.trim().replaceAll("\\s+", " ").replace("<unknown>", "").trim();
     }
 
-    /* ---------------- 1) 网易云 ---------------- */
+    /* ---------------- 2) 网易云 ---------------- */
 
     private Result tryNetease(String track, String artist, StringBuilder fail) {
         try {
@@ -128,7 +128,7 @@ public final class CarLyricsFetcher {
         }
     }
 
-    /* ---------------- 2) QQ 音乐 ---------------- */
+    /* ---------------- 1) QQ 音乐 ---------------- */
 
     private Result tryQq(String track, String artist, StringBuilder fail) {
         try {
